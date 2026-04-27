@@ -3,9 +3,10 @@ import type {
   ClientActionMessage,
   ModifierKey,
   ServerMessage,
-  TabInfo,
 } from "../shared/protocol.js";
 import { setupPasteHelper } from "./paste-helper.js";
+import { setupResize } from "./resize.js";
+import { setupTabs } from "./tabs.js";
 
 type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
@@ -45,7 +46,6 @@ let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
 let urlEditing = false;
 let nextActionId = 1;
 let isVisible = true;
-let lastTabs: TabInfo[] = [];
 
 function setStatus(state: ConnectionState, label?: string) {
   els.status.dataset.state = state;
@@ -175,7 +175,7 @@ class Bridge {
         els.screen.src = `data:${mime};base64,${msg.data}`;
         els.placeholder.classList.add("hidden");
         // If frames are arriving, the tab is alive — clear any stale inactive prompt.
-        hideInactiveOverlay();
+        tabs.hideInactive();
         recordFrame();
         fitFrame();
         return;
@@ -186,18 +186,17 @@ class Bridge {
         els.loadingIndicator.hidden = !msg.loading;
         return;
       case "tabs":
-        lastTabs = msg.tabs;
-        renderTabs(msg.tabs);
+        tabs.setTabs(msg.tabs);
         return;
       case "visibility":
         if (msg.visible !== isVisible) {
           isVisible = msg.visible;
           document.body.classList.toggle("out-of-focus", !isVisible);
-          renderTabs(lastTabs);
+          tabs.setVisibility(msg.visible);
         }
         return;
       case "inactive":
-        showInactiveOverlay();
+        tabs.showInactive();
         return;
       case "hover":
         els.hoverLink.textContent = msg.href ?? "";
@@ -216,16 +215,10 @@ class Bridge {
       case "error":
         console.warn("[bridge] server error:", msg.message);
         showToast(msg.message);
-        if (msg.id !== undefined && msg.id === viewportInFlightId) {
-          viewportInFlightId = null;
-          maybeSendViewport();
-        }
+        if (msg.id !== undefined) resize.notifyResolved(msg.id);
         return;
       case "ack":
-        if (msg.id !== undefined && msg.id === viewportInFlightId) {
-          viewportInFlightId = null;
-          maybeSendViewport();
-        }
+        if (msg.id !== undefined) resize.notifyResolved(msg.id);
         return;
     }
   }
@@ -238,83 +231,21 @@ const pasteHelper = setupPasteHelper({
   isUrlBarFocused: () => document.activeElement === els.url,
   debug: true,
 });
-bridge.connect();
-
-// ── Tabs ─────────────────────────────────────────────────────────────────────
-
-function renderTabs(tabs: TabInfo[]) {
-  els.tabs.replaceChildren();
-  for (const tab of tabs) {
-    const el = document.createElement("button");
-    el.type = "button";
-    const dimmed = tab.active && !isVisible;
-    el.className = `tab${tab.active ? " active" : ""}${dimmed ? " dimmed" : ""}`;
-    el.title = dimmed
-      ? `${tab.title || tab.url}\n${tab.url}\n(click to bring back to front in Chrome)`
-      : `${tab.title || tab.url}\n${tab.url}`;
-
-    const title = document.createElement("span");
-    title.className = "title";
-    title.textContent = tab.title || hostnameOf(tab.url) || tab.url || "(untitled)";
-    el.appendChild(title);
-
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "close";
-    close.textContent = "×";
-    close.title = "Close tab";
-    close.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      bridge.send({ type: "closeTab", tabId: tab.id });
-    });
-    el.appendChild(close);
-
-    el.addEventListener("click", () => {
-      if (!tab.active) {
-        // Clear any inactive prompt left over from the previous tab so it
-        // doesn't linger over the new one until the timeout re-fires.
-        hideInactiveOverlay();
-        bridge.send({ type: "switchTab", tabId: tab.id });
-      } else {
-        // Re-clicking the active tab refocuses it in the user's real Chrome —
-        // the bridge already attaches here, this just brings it to foreground.
-        bridge.send({ type: "refocus" });
-      }
-    });
-    els.tabs.appendChild(el);
-  }
-  const newBtn = document.createElement("button");
-  newBtn.type = "button";
-  newBtn.className = "new-tab";
-  newBtn.textContent = "+";
-  newBtn.title = "New tab";
-  newBtn.addEventListener("click", () => bridge.send({ type: "newTab" }));
-  els.tabs.appendChild(newBtn);
-}
-
-function hostnameOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return "";
-  }
-}
-
-// ── Inactive-tab overlay ─────────────────────────────────────────────────────
-
-function showInactiveOverlay() {
-  els.inactiveOverlay.hidden = false;
-}
-
-function hideInactiveOverlay() {
-  els.inactiveOverlay.hidden = true;
-}
-
-els.inactiveRevive.addEventListener("click", () => {
-  bridge.send({ type: "reviveTab" });
-  hideInactiveOverlay();
+const resize = setupResize({
+  handle: els.resizeHandle,
+  readout: els.resizeReadout,
+  frame: els.frame,
+  getViewport: () => viewport,
+  send: (action) => bridge.send(action),
 });
-els.inactiveCancel.addEventListener("click", hideInactiveOverlay);
+const tabs = setupTabs({
+  tabsEl: els.tabs,
+  inactiveOverlay: els.inactiveOverlay,
+  inactiveRevive: els.inactiveRevive,
+  inactiveCancel: els.inactiveCancel,
+  send: (action) => bridge.send(action),
+});
+bridge.connect();
 
 // ── FPS meter ────────────────────────────────────────────────────────────────
 
@@ -347,117 +278,6 @@ function showToast(message: string, durationMs = 4000) {
 
 window.addEventListener("resize", fitFrame);
 new ResizeObserver(fitFrame).observe(els.stage);
-
-// ── Resize handle ────────────────────────────────────────────────────────────
-
-// Drag state for the status-bar resize grip. We capture the cursor's starting
-// screen position and the remote viewport at drag-start, then treat further
-// cursor movement as a delta on the remote dimensions. The local frame is
-// not sized from the cursor — fitFrame keeps auto-fitting the stage at the
-// remote's new aspect each time a screencast frame arrives.
-//
-// Adaptive pacing: only one outstanding setViewport in flight at a time.
-// mousemove updates `pendingViewport`; we send immediately if no prior
-// request is in flight, otherwise wait for that one's ack and then send the
-// latest pending. Send rate auto-adapts to whatever Chrome can keep up with
-// — a fixed-interval throttle was previously starving the screencast
-// pipeline during fast drags because Chrome can't reflow + paint + screencast
-// at 20Hz on heavy pages.
-let resizing = false;
-let resizeDragStart: {
-  startX: number;
-  startY: number;
-  startW: number;
-  startH: number;
-  pxPerCssX: number;
-  pxPerCssY: number;
-} | null = null;
-let pendingViewport: { width: number; height: number } | null = null;
-let lastSentViewport: { width: number; height: number } | null = null;
-let viewportInFlightId: string | null = null;
-const MIN_REMOTE_W = 320;
-const MIN_REMOTE_H = 240;
-
-function maybeSendViewport() {
-  if (!pendingViewport) return;
-  if (viewportInFlightId !== null) return;
-  const dims = pendingViewport;
-  if (
-    lastSentViewport &&
-    dims.width === lastSentViewport.width &&
-    dims.height === lastSentViewport.height
-  ) {
-    pendingViewport = null;
-    return;
-  }
-  pendingViewport = null;
-  lastSentViewport = dims;
-  const id = bridge.send({ type: "setViewport", width: dims.width, height: dims.height });
-  if (id !== null) viewportInFlightId = id;
-}
-
-function queueViewportUpdate(width: number, height: number) {
-  pendingViewport = { width, height };
-  maybeSendViewport();
-}
-
-function updateResizeReadout(remoteW: number, remoteH: number) {
-  els.resizeReadout.textContent = `${remoteW} × ${remoteH}`;
-}
-
-els.resizeHandle.addEventListener("mousedown", (e) => {
-  if (e.button !== 0) return;
-  e.preventDefault();
-  e.stopPropagation();
-  const rect = els.frame.getBoundingClientRect();
-  resizeDragStart = {
-    startX: e.clientX,
-    startY: e.clientY,
-    startW: viewport.width,
-    startH: viewport.height,
-    pxPerCssX: viewport.width / rect.width,
-    pxPerCssY: viewport.height / rect.height,
-  };
-  resizing = true;
-  document.body.classList.add("resizing");
-  els.resizeReadout.hidden = false;
-  updateResizeReadout(viewport.width, viewport.height);
-});
-
-window.addEventListener("mousemove", (e) => {
-  if (!resizeDragStart) return;
-  e.preventDefault();
-  const dx = e.clientX - resizeDragStart.startX;
-  const dy = e.clientY - resizeDragStart.startY;
-  const remoteW = Math.max(
-    MIN_REMOTE_W,
-    Math.round(resizeDragStart.startW + dx * resizeDragStart.pxPerCssX),
-  );
-  const remoteH = Math.max(
-    MIN_REMOTE_H,
-    Math.round(resizeDragStart.startH + dy * resizeDragStart.pxPerCssY),
-  );
-  queueViewportUpdate(remoteW, remoteH);
-  updateResizeReadout(remoteW, remoteH);
-});
-
-window.addEventListener("mouseup", (e) => {
-  if (!resizeDragStart) return;
-  if (e.button !== 0) return;
-  resizeDragStart = null;
-  resizing = false;
-  document.body.classList.remove("resizing");
-  els.resizeReadout.hidden = true;
-  // The latest cursor delta is already in `pendingViewport`; if the previous
-  // request is still in flight, maybeSendViewport will pick it up when the
-  // ack arrives. No explicit flush needed.
-  maybeSendViewport();
-});
-
-// Touch the `resizing` flag via void so TS doesn't flag it unused — it's
-// available for future code that might want to suppress unrelated work
-// during a drag (e.g. hover lookups).
-void resizing;
 
 // ── Mouse / scroll ───────────────────────────────────────────────────────────
 
