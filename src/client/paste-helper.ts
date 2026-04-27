@@ -156,18 +156,46 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
   // disabled — keystrokes are forwarded by the keydown handler and the
   // field's state is mirrored back by the server.
   document.addEventListener("selectionchange", () => {
-    if (document.activeElement !== el) return;
+    if (document.activeElement !== el) {
+      dbg("selectionchange-skip", { reason: "helper-not-focused" });
+      return;
+    }
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? 0;
+    const len = el.value.length;
+    const mode = state.field ? "field" : "selection";
     if (
       start === lastProgrammaticSelection[0] &&
       end === lastProgrammaticSelection[1]
     ) {
+      dbg("selectionchange-skip", {
+        reason: "matches-programmatic",
+        start,
+        end,
+        len,
+        mode,
+      });
       return;
     }
-    if (state.field) return;
-    const len = el.value.length;
     let detected: string | null = null;
+    if (state.field) {
+      // In field mode the helper mirrors the remote field's value, so a
+      // full-range selection in the helper is unambiguously Cmd-A (the user
+      // can't have produced [0, value.length] by clicking — that would be a
+      // drag-select, which our keydown path doesn't trigger here). Other
+      // chords (Ctrl-A as MoveToBeginningOfLine, Ctrl-E) overlap with valid
+      // caret positions the field could legitimately report, so we leave
+      // those to be forwarded by the keydown handler.
+      if (start === 0 && end === len && len > 0) {
+        detected = "cmd-a";
+        send({ type: "key", key: "a", code: "KeyA", modifiers: ["Meta"], phase: "press" });
+        dbg("selectionchange", { start, end, len, mode, detected });
+        applyState();
+        return;
+      }
+      dbg("selectionchange-skip", { reason: "field-mode", start, end, len });
+      return;
+    }
     if (start === 0 && end === len) {
       detected = "cmd-a";
       send({ type: "key", key: "a", code: "KeyA", modifiers: ["Meta"], phase: "press" });
@@ -178,7 +206,7 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
       detected = "ctrl-e";
       send({ type: "key", key: "e", code: "KeyE", modifiers: ["Control"], phase: "press" });
     }
-    dbg("selectionchange", { start, end, len, detected });
+    dbg("selectionchange", { start, end, len, mode, detected });
     applyState();
   });
 
@@ -199,7 +227,16 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
     if (e.key === "Meta" || e.key === "Control" || e.key === "Alt" || e.key === "Shift") {
       return;
     }
-    if (e.metaKey) return;
+    if (e.metaKey) {
+      dbg("keydown-cmd-chord", {
+        key: e.key,
+        code: e.code,
+        mode: state.field ? "field" : "selection",
+        defaultPrevented: e.defaultPrevented,
+        helperValueLen: el.value.length,
+      });
+      return;
+    }
 
     const modifiers = modifiersFromEvent(e);
     const forward = (label: string) => {

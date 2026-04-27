@@ -97,6 +97,20 @@ function modifierMask(mods?: ModifierKey[]): number {
   return mods.reduce((acc, m) => acc | MODIFIER_BITS[m], 0);
 }
 
+// Map a (key, modifiers) pair to Chromium editor commands. CDP exposes a
+// `commands` array on Input.dispatchKeyEvent that the renderer executes
+// alongside the synthesized event — necessary for chords like Cmd-A whose
+// behavior is implemented as an editor command, not via the DOM keypress.
+function editorCommandsFor(key: string, mods?: ModifierKey[]): string[] {
+  const meta = !!mods?.includes("Meta");
+  const ctrl = !!mods?.includes("Control");
+  const k = key.toLowerCase();
+  if (meta && k === "a") return ["SelectAll"];
+  if (ctrl && k === "a") return ["MoveToBeginningOfLine"];
+  if (ctrl && k === "e") return ["MoveToEndOfLine"];
+  return [];
+}
+
 // URL prefixes for targets that *aren't* user-visible browser tabs — they're
 // internal Chrome surfaces that show up as `type: "page"` in CDP but the user
 // would never expect to see them in a tab list (omnibox popup, extension
@@ -1074,7 +1088,19 @@ export class BrowserSession extends EventEmitter {
       case "key": {
         const desc = keyDescriptorFor(action.key, action.code);
         const modifiers = modifierMask(action.modifiers);
-        const downEvent = {
+        // CDP synthetic key events fire DOM keydowns but don't always invoke
+        // the renderer's editor commands. The `commands` array tells Chrome to
+        // also execute the named editing command after the synthesized event,
+        // which is what makes Cmd-A actually select all (and similar) work.
+        const commands = editorCommandsFor(action.key, action.modifiers);
+        console.log("[browser-interface] key", {
+          phase: action.phase,
+          key: action.key,
+          code: action.code,
+          modifiers: action.modifiers,
+          commands,
+        });
+        const downEvent: Record<string, unknown> = {
           type: "keyDown",
           modifiers,
           key: desc.key,
@@ -1084,6 +1110,7 @@ export class BrowserSession extends EventEmitter {
           text: desc.text,
           unmodifiedText: desc.text,
         };
+        if (commands.length > 0) downEvent.commands = commands;
         const upEvent = {
           type: "keyUp",
           modifiers,
