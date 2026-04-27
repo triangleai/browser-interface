@@ -44,12 +44,19 @@ export interface BridgeHandle {
 
 export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandle> {
   const sessionOpts: BrowserSessionOptions = { ...opts };
+  let cdpEndpoint = "";
   if (!sessionOpts.target && !sessionOpts.port && (opts.autoDiscover ?? true)) {
     const ep = await discoverChrome({ log: (m) => console.log(m) });
     sessionOpts.target = ep.browserWsUrl;
+    cdpEndpoint = `${ep.host}:${ep.port}`;
     console.log(
       `[browser-interface] discovered Chrome at ${ep.host}:${ep.port} (profile: ${ep.profileDir})`,
     );
+  } else if (sessionOpts.host && sessionOpts.port) {
+    cdpEndpoint = `${sessionOpts.host}:${sessionOpts.port}`;
+  } else if (sessionOpts.target) {
+    const m = sessionOpts.target.match(/^wss?:\/\/([^/]+)/);
+    if (m && m[1]) cdpEndpoint = m[1];
   }
   const session = new BrowserSession(sessionOpts);
   await session.connect();
@@ -88,10 +95,20 @@ export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandl
       }
       const viewport = session.getViewport();
       const page = session.getPage();
-      send({ type: "ready", viewport, url: page.url, title: page.title });
+      send({
+        type: "ready",
+        viewport,
+        url: page.url,
+        title: page.title,
+        cdpEndpoint: cdpEndpoint || undefined,
+      });
       const tabs = session.getTabs();
       if (tabs.length > 0) send({ type: "tabs", tabs });
       send({ type: "visibility", visible: session.getVisibility() });
+      // Seed the UI with a current frame so it doesn't sit on the "Waiting for
+      // first frame…" placeholder until the page happens to paint something.
+      const frame = await session.captureCurrentFrame();
+      if (frame) send(frame);
     })();
 
     ws.on("message", async (raw) => {

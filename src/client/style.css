@@ -140,6 +140,76 @@ body {
   flex: 0 0 auto;
 }
 
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+  min-height: 24px;
+}
+
+.statusbar-spacer {
+  flex: 1 1 auto;
+}
+
+.cdp-endpoint {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.cdp-endpoint:empty {
+  display: none;
+}
+
+.fps {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  min-width: 48px;
+  text-align: right;
+}
+
+.loading-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.loading-indicator[hidden] {
+  display: none;
+}
+
+.loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: loading-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes loading-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .nav {
   background: transparent;
   border: 1px solid var(--border);
@@ -208,22 +278,20 @@ body {
 .stage {
   flex: 1 1 auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
   overflow: hidden;
   outline: none;
-  padding: 12px;
 }
 
 .frame {
   position: relative;
   background: #000;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-  border-radius: 6px;
   overflow: hidden;
   /* Sized inline by JS based on viewport metrics. */
   max-width: 100%;
-  max-height: 100%;
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 #screen {

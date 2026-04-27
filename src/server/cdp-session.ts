@@ -533,6 +533,37 @@ export class BrowserSession extends EventEmitter {
     return this.visible;
   }
 
+  // One-shot screenshot used to seed a freshly-connected UI client with a
+  // current frame. Page.startScreencast is event-driven and only emits when
+  // the page paints, so a static page would otherwise leave the UI stuck on
+  // its placeholder until the user does something. Bounded with a timeout
+  // so it can't hang a slow renderer; returns null on any failure.
+  async captureCurrentFrame(): Promise<ScreenshotMessage | null> {
+    if (!this.client || !this.sessionId) return null;
+    const format = this.opts.screenshotFormat ?? "jpeg";
+    const params: { format: "png" | "jpeg"; quality?: number } = { format };
+    if (format === "jpeg") params.quality = this.opts.screenshotQuality ?? 60;
+    try {
+      const result = (await withTimeout(
+        this.send<{ data: string }>("Page.captureScreenshot", params),
+        2000,
+      )) as { data: string } | null;
+      if (!result) return null;
+      return {
+        type: "screenshot",
+        data: result.data,
+        format,
+        width: this.viewport.width,
+        height: this.viewport.height,
+        deviceScaleFactor: this.viewport.deviceScaleFactor,
+        frame: ++this.frameCount,
+        capturedAt: Date.now(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   // Force-foreground the bridge's current target in real Chrome. Used when the
   // user has switched away in their browser and wants to bring the bridged
   // tab back without going through the tab list.

@@ -22,6 +22,9 @@ const els = {
   urlForm: document.getElementById("url-form") as HTMLFormElement,
   url: document.getElementById("url") as HTMLInputElement,
   status: document.getElementById("status") as HTMLSpanElement,
+  cdpEndpoint: document.getElementById("cdp-endpoint") as HTMLSpanElement,
+  loadingIndicator: document.getElementById("loading-indicator") as HTMLSpanElement,
+  fps: document.getElementById("fps") as HTMLSpanElement,
   stage: document.getElementById("stage") as HTMLElement,
   frame: document.getElementById("frame") as HTMLDivElement,
   screen: document.getElementById("screen") as HTMLImageElement,
@@ -52,10 +55,13 @@ function setStatus(state: ConnectionState, label?: string) {
 
 function fitFrame() {
   // Sets the framed image element to the largest size that fits the stage,
-  // preserving the aspect ratio of the remote viewport.
-  const padding = 24;
-  const availW = els.stage.clientWidth - padding;
-  const availH = els.stage.clientHeight - padding;
+  // preserving the aspect ratio of the remote viewport. The status bar lives
+  // inside the stage now (so it can sit flush below the frame), so we need to
+  // subtract its measured height from the available vertical space.
+  const statusbar = document.querySelector(".statusbar") as HTMLElement | null;
+  const statusH = statusbar ? statusbar.offsetHeight : 0;
+  const availW = els.stage.clientWidth;
+  const availH = els.stage.clientHeight - statusH;
   const aspect = viewport.width / viewport.height;
   let w = availW;
   let h = w / aspect;
@@ -148,6 +154,7 @@ class Bridge {
         viewport = msg.viewport;
         if (!urlEditing) els.url.value = msg.url;
         document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
+        els.cdpEndpoint.textContent = msg.cdpEndpoint ?? "";
         fitFrame();
         return;
       case "screenshot": {
@@ -161,12 +168,14 @@ class Bridge {
         els.placeholder.classList.add("hidden");
         // If frames are arriving, the tab is alive — clear any stale inactive prompt.
         hideInactiveOverlay();
+        recordFrame();
         fitFrame();
         return;
       }
       case "page":
         if (!urlEditing) els.url.value = msg.url;
         document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
+        els.loadingIndicator.hidden = !msg.loading;
         return;
       case "tabs":
         lastTabs = msg.tabs;
@@ -270,6 +279,24 @@ els.inactiveRevive.addEventListener("click", () => {
   hideInactiveOverlay();
 });
 els.inactiveCancel.addEventListener("click", hideInactiveOverlay);
+
+// ── FPS meter ────────────────────────────────────────────────────────────────
+
+const frameTimes: number[] = [];
+function recordFrame() {
+  frameTimes.push(performance.now());
+}
+function refreshFps() {
+  const now = performance.now();
+  while (frameTimes.length && now - frameTimes[0]! > 1000) frameTimes.shift();
+  // Also clear "live" status if we haven't seen a frame in a while.
+  if (frameTimes.length === 0) {
+    els.fps.textContent = "idle";
+  } else {
+    els.fps.textContent = `${frameTimes.length} fps`;
+  }
+}
+setInterval(refreshFps, 500);
 
 // ── Toast (transient error display) ──────────────────────────────────────────
 

@@ -21,7 +21,6 @@
           placeholder="https://…"
         />
       </form>
-      <span id="status" class="status" data-state="connecting">connecting…</span>
     </header>
     <div id="toast" class="toast" hidden></div>
     <main class="stage" id="stage" tabindex="0">
@@ -46,6 +45,16 @@
           </div>
         </div>
       </div>
+      <footer class="statusbar">
+        <span id="cdp-endpoint" class="cdp-endpoint" title="CDP target"></span>
+        <span class="statusbar-spacer"></span>
+        <span id="loading-indicator" class="loading-indicator" hidden>
+          <span class="loading-dot"></span>
+          loading
+        </span>
+        <span id="fps" class="fps" title="Screencast frames per second">— fps</span>
+        <span id="status" class="status" data-state="connecting">connecting…</span>
+      </footer>
     </main>
     <script type="module" src="./main.js"></script>
   </body>
