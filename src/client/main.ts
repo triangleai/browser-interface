@@ -1,14 +1,8 @@
-import type {
-  ClientAction,
-  ClientActionMessage,
-  ModifierKey,
-  ServerMessage,
-} from "../shared/protocol.js";
+import type { ModifierKey, ServerMessage } from "../shared/protocol.js";
+import { createBridge, type ConnectionState } from "./bridge.js";
 import { setupPasteHelper } from "./paste-helper.js";
 import { setupResize } from "./resize.js";
 import { setupTabs } from "./tabs.js";
-
-type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
 interface Viewport {
   width: number;
@@ -44,7 +38,6 @@ const els = {
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
 let urlEditing = false;
-let nextActionId = 1;
 let isVisible = true;
 
 function setStatus(state: ConnectionState, label?: string) {
@@ -98,136 +91,80 @@ function modifiersFromEvent(e: KeyboardEvent | MouseEvent | WheelEvent): Modifie
   return mods;
 }
 
-class Bridge {
-  private ws: WebSocket | null = null;
-  private retryDelay = 500;
-  private intentionallyClosed = false;
-
-  connect() {
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws`);
-    this.ws = ws;
-    setStatus("connecting");
-
-    ws.addEventListener("open", () => {
-      this.retryDelay = 500;
-      setStatus("connected");
-      ws.send(
-        JSON.stringify({
-          type: "hello",
-          client: `human-${Math.random().toString(36).slice(2, 8)}`,
-          role: "human",
-        }),
-      );
-    });
-
-    ws.addEventListener("message", (ev) => {
-      let msg: ServerMessage;
-      try {
-        msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-      } catch {
-        return;
-      }
-      this.handleServerMessage(msg);
-    });
-
-    ws.addEventListener("close", () => {
-      this.ws = null;
-      if (this.intentionallyClosed) return;
-      setStatus("disconnected");
-      setTimeout(() => this.connect(), this.retryDelay);
-      this.retryDelay = Math.min(5000, this.retryDelay * 2);
-    });
-
-    ws.addEventListener("error", () => {
-      setStatus("error");
-    });
-  }
-
-  send(action: ClientAction): string | null {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return null;
-    const id = String(nextActionId++);
-    const msg: ClientActionMessage = {
-      type: "action",
-      id,
-      action,
-    };
-    this.ws.send(JSON.stringify(msg));
-    return id;
-  }
-
-  private handleServerMessage(msg: ServerMessage) {
-    switch (msg.type) {
-      case "ready":
-        viewport = msg.viewport;
-        if (!urlEditing) els.url.value = msg.url;
-        document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
-        els.cdpEndpoint.textContent = msg.cdpEndpoint ?? "";
-        fitFrame();
-        return;
-      case "screenshot": {
-        viewport = {
-          width: msg.width,
-          height: msg.height,
-          deviceScaleFactor: msg.deviceScaleFactor,
-        };
-        const mime = msg.format === "png" ? "image/png" : "image/jpeg";
-        els.screen.src = `data:${mime};base64,${msg.data}`;
-        els.placeholder.classList.add("hidden");
-        // If frames are arriving, the tab is alive — clear any stale inactive prompt.
-        tabs.hideInactive();
-        recordFrame();
-        fitFrame();
-        return;
-      }
-      case "page":
-        if (!urlEditing) els.url.value = msg.url;
-        document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
-        els.loadingIndicator.hidden = !msg.loading;
-        return;
-      case "tabs":
-        tabs.setTabs(msg.tabs);
-        return;
-      case "visibility":
-        if (msg.visible !== isVisible) {
-          isVisible = msg.visible;
-          document.body.classList.toggle("out-of-focus", !isVisible);
-          tabs.setVisibility(msg.visible);
-        }
-        return;
-      case "inactive":
-        tabs.showInactive();
-        return;
-      case "hover":
-        els.hoverLink.textContent = msg.href ?? "";
-        els.hoverLink.title = msg.href ?? "";
-        // Real anchor href so left-click opens in the user's current browser
-        // and right-click → "Copy Link Address" works.
-        if (msg.href) {
-          els.hoverLink.href = msg.href;
-        } else {
-          els.hoverLink.removeAttribute("href");
-        }
-        return;
-      case "selection":
-        pasteHelper.setRemoteSelection(msg.text);
-        return;
-      case "error":
-        console.warn("[bridge] server error:", msg.message);
-        showToast(msg.message);
-        if (msg.id !== undefined) resize.notifyResolved(msg.id);
-        return;
-      case "ack":
-        if (msg.id !== undefined) resize.notifyResolved(msg.id);
-        return;
+function handleServerMessage(msg: ServerMessage) {
+  switch (msg.type) {
+    case "ready":
+      viewport = msg.viewport;
+      if (!urlEditing) els.url.value = msg.url;
+      document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
+      els.cdpEndpoint.textContent = msg.cdpEndpoint ?? "";
+      fitFrame();
+      return;
+    case "screenshot": {
+      viewport = {
+        width: msg.width,
+        height: msg.height,
+        deviceScaleFactor: msg.deviceScaleFactor,
+      };
+      const mime = msg.format === "png" ? "image/png" : "image/jpeg";
+      els.screen.src = `data:${mime};base64,${msg.data}`;
+      els.placeholder.classList.add("hidden");
+      // If frames are arriving, the tab is alive — clear any stale inactive prompt.
+      tabs.hideInactive();
+      recordFrame();
+      fitFrame();
+      return;
     }
+    case "page":
+      if (!urlEditing) els.url.value = msg.url;
+      document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
+      els.loadingIndicator.hidden = !msg.loading;
+      return;
+    case "tabs":
+      tabs.setTabs(msg.tabs);
+      return;
+    case "visibility":
+      if (msg.visible !== isVisible) {
+        isVisible = msg.visible;
+        document.body.classList.toggle("out-of-focus", !isVisible);
+        tabs.setVisibility(msg.visible);
+      }
+      return;
+    case "inactive":
+      tabs.showInactive();
+      return;
+    case "hover":
+      els.hoverLink.textContent = msg.href ?? "";
+      els.hoverLink.title = msg.href ?? "";
+      // Real anchor href so left-click opens in the user's current browser
+      // and right-click → "Copy Link Address" works.
+      if (msg.href) {
+        els.hoverLink.href = msg.href;
+      } else {
+        els.hoverLink.removeAttribute("href");
+      }
+      return;
+    case "selection":
+      pasteHelper.setRemoteSelection(msg.text);
+      return;
+    case "error":
+      console.warn("[bridge] server error:", msg.message);
+      showToast(msg.message);
+      if (msg.id !== undefined) resize.notifyResolved(msg.id);
+      return;
+    case "ack":
+      if (msg.id !== undefined) resize.notifyResolved(msg.id);
+      return;
   }
 }
 
-const bridge = new Bridge();
+const bridge = createBridge({
+  setStatus,
+  onMessage: handleServerMessage,
+});
 const pasteHelper = setupPasteHelper({
   el: els.pasteHelper,
-  send: (action) => bridge.send(action),
+  send: bridge.send,
   isUrlBarFocused: () => document.activeElement === els.url,
   debug: true,
 });
@@ -236,14 +173,14 @@ const resize = setupResize({
   readout: els.resizeReadout,
   frame: els.frame,
   getViewport: () => viewport,
-  send: (action) => bridge.send(action),
+  send: bridge.send,
 });
 const tabs = setupTabs({
   tabsEl: els.tabs,
   inactiveOverlay: els.inactiveOverlay,
   inactiveRevive: els.inactiveRevive,
   inactiveCancel: els.inactiveCancel,
-  send: (action) => bridge.send(action),
+  send: bridge.send,
 });
 bridge.connect();
 
