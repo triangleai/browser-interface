@@ -5,6 +5,7 @@ import type {
   ServerMessage,
   TabInfo,
 } from "../shared/protocol.js";
+import { setupPasteHelper } from "./paste-helper.js";
 
 type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
@@ -39,18 +40,6 @@ const els = {
   resizeReadout: document.getElementById("resize-readout") as HTMLDivElement,
   pasteHelper: document.getElementById("paste-helper") as HTMLInputElement,
 };
-
-// Plain-text contents of the remote DOM's current selection, pushed by the
-// server whenever it changes. Cached client-side so the synchronous `copy`
-// event handler can populate clipboardData without an async round-trip.
-let lastRemoteSelection = "";
-
-// Tagged debug logger for the clipboard / paste-helper plumbing. Filterable
-// in DevTools with the `[clip]` prefix.
-function clipDbg(event: string, fields?: Record<string, unknown>) {
-  if (fields) console.log(`[clip] ${event}`, fields);
-  else console.log(`[clip] ${event}`);
-}
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
 let urlEditing = false;
@@ -222,14 +211,7 @@ class Bridge {
         }
         return;
       case "selection":
-        lastRemoteSelection = msg.text;
-        els.pasteHelper.value = ` ${msg.text} `;
-        clipDbg("server-selection", {
-          textLen: msg.text.length,
-          textPreview: msg.text.slice(0, 40),
-          helperFocused: document.activeElement === els.pasteHelper,
-        });
-        if (document.activeElement === els.pasteHelper) selectHelperContent();
+        pasteHelper.setRemoteSelection(msg.text);
         return;
       case "error":
         console.warn("[bridge] server error:", msg.message);
@@ -250,6 +232,12 @@ class Bridge {
 }
 
 const bridge = new Bridge();
+const pasteHelper = setupPasteHelper({
+  el: els.pasteHelper,
+  send: (action) => bridge.send(action),
+  isUrlBarFocused: () => document.activeElement === els.url,
+  debug: true,
+});
 bridge.connect();
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
@@ -486,69 +474,13 @@ mouseTarget.addEventListener("mouseleave", () => {
 
 mouseTarget.addEventListener("mousedown", (e) => {
   e.preventDefault();
-  focusPasteHelper();
-});
-
-// Anchor focus on the hidden paste-helper input. Cocoa needs a real text-edit
-// responder in the chain when a Cmd-letter chord arrives — without one it
-// escalates the chord to the Apple menu (Cmd-C/V/A → About This Mac, etc.).
-// The helper's value is " <remote selection> "; we keep just the content
-// portion selected so Cmd-C copies the right text.
-function focusPasteHelper() {
-  if (document.activeElement === els.url) return;
-  const wasFocused = document.activeElement === els.pasteHelper;
-  if (!wasFocused) {
-    els.pasteHelper.focus({ preventScroll: true });
-  }
-  const expected = ` ${lastRemoteSelection} `;
-  const dirty = els.pasteHelper.value !== expected;
-  if (dirty) els.pasteHelper.value = expected;
-  selectHelperContent();
-  clipDbg("focus-helper", {
-    wasFocused,
-    dirty,
-    valueLen: els.pasteHelper.value.length,
-    selection: [els.pasteHelper.selectionStart, els.pasteHelper.selectionEnd],
-  });
-}
-
-function selectHelperContent() {
-  els.pasteHelper.setSelectionRange(1, 1 + lastRemoteSelection.length);
-}
-
-// Watch the helper's selection state. When the user fires a chord that
-// natively manipulates the input's selection — Cmd-A (full select), Ctrl-A
-// or Home (caret to start), Ctrl-E or End (caret to end) — the selection
-// lands somewhere distinguishable from the baseline content range, and we
-// forward the matching action to the remote. Then we reset to the content
-// baseline so the next Cmd-C still copies the remote selection.
-document.addEventListener("selectionchange", () => {
-  if (document.activeElement !== els.pasteHelper) return;
-  const start = els.pasteHelper.selectionStart ?? 0;
-  const end = els.pasteHelper.selectionEnd ?? 0;
-  const len = els.pasteHelper.value.length;
-  const baseStart = 1;
-  const baseEnd = 1 + lastRemoteSelection.length;
-  if (start === baseStart && end === baseEnd) return;
-  let detected: string | null = null;
-  if (start === 0 && end === len) {
-    detected = "cmd-a";
-    bridge.send({ type: "key", key: "a", code: "KeyA", modifiers: ["Meta"], phase: "press" });
-  } else if (start === 0 && end === 0) {
-    detected = "ctrl-a";
-    bridge.send({ type: "key", key: "a", code: "KeyA", modifiers: ["Control"], phase: "press" });
-  } else if (start === len && end === len) {
-    detected = "ctrl-e";
-    bridge.send({ type: "key", key: "e", code: "KeyE", modifiers: ["Control"], phase: "press" });
-  }
-  clipDbg("selectionchange", { start, end, len, detected });
-  selectHelperContent();
+  pasteHelper.focus();
 });
 
 // Re-anchor focus when the URL bar gives it up, and once at startup so the
 // very first keystroke after page load already lands on the paste-helper.
-els.url.addEventListener("blur", () => focusPasteHelper());
-window.addEventListener("load", () => focusPasteHelper());
+els.url.addEventListener("blur", () => pasteHelper.focus());
+window.addEventListener("load", () => pasteHelper.focus());
 
 mouseTarget.addEventListener("click", (e) => {
   e.preventDefault();
@@ -618,34 +550,6 @@ mouseTarget.addEventListener(
   },
   { passive: false },
 );
-
-// ── Keyboard ─────────────────────────────────────────────────────────────────
-
-function isUrlBarFocused(): boolean {
-  return document.activeElement === els.url;
-}
-
-// Cmd-V: read the system clipboard's plain text and forward to the remote
-// as IME-friendly insertText. preventDefault stops the local input from
-// also receiving the paste (which would dirty its value and shadow the
-// next remote selection mirror until the server re-pushed one).
-els.pasteHelper.addEventListener("paste", (e) => {
-  if (isUrlBarFocused()) return;
-  e.preventDefault();
-  const text = e.clipboardData?.getData("text/plain") ?? "";
-  clipDbg("paste-event", { textLen: text.length, textPreview: text.slice(0, 40) });
-  if (text) bridge.send({ type: "type", text });
-});
-
-// Native copy off the input is what should produce Cmd-C output. Logging
-// here verifies the event actually fires and shows what the OS will end up
-// putting on the system clipboard (the input's selected text).
-els.pasteHelper.addEventListener("copy", () => {
-  const start = els.pasteHelper.selectionStart ?? 0;
-  const end = els.pasteHelper.selectionEnd ?? 0;
-  const selected = els.pasteHelper.value.slice(start, end);
-  clipDbg("copy-event", { start, end, selectedLen: selected.length, selected });
-});
 
 // ── Toolbar ──────────────────────────────────────────────────────────────────
 
