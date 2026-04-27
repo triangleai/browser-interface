@@ -386,6 +386,7 @@ body {
 }
 
 .stage {
+  position: relative;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -503,6 +504,58 @@ body.out-of-focus .frame {
 }
 
 .btn-secondary:hover {
+  background: #1a1f27;
+}
+
+.find-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #2a2f37;
+  border: 1px solid #3a4250;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+}
+
+.find-bar[hidden] {
+  display: none;
+}
+
+.find-input {
+  background: #1a1f27;
+  color: #e6edf3;
+  border: 1px solid #3a4250;
+  border-radius: 4px;
+  padding: 4px 8px;
+  width: 220px;
+  font-size: 12px;
+  outline: none;
+  font-family: inherit;
+}
+
+.find-input:focus {
+  border-color: #5a6b80;
+}
+
+.find-btn {
+  background: transparent;
+  color: #c9d1d9;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.find-btn:hover {
   background: #1a1f27;
 }
 

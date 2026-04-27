@@ -85,6 +85,115 @@ const SELECTION_PROBE = `JSON.stringify((() => {
   return { text: sel ? sel.toString() : '' };
 })())`;
 
+// Builds an in-page expression for find-on-page. Walks every visible text
+// node, concatenates them into a flat string, runs indexOf/lastIndexOf for
+// the query relative to the current selection's end position, and selects
+// the match via Range. Ignores `user-select: none` so link/nav/file-tree
+// text on sites like GitHub is searchable.
+function findOnPageScript(query: string, backward: boolean, fromStart: boolean): string {
+  return `(() => {
+    const query = ${JSON.stringify(query)};
+    const backward = ${backward};
+    const fromStart = ${fromStart};
+    if (fromStart) window.getSelection().removeAllRanges();
+    const queryLower = query.toLowerCase();
+    const nodes = [];
+    const parts = [];
+    let total = 0;
+    // Recursive visitor that descends into open shadow roots — sites like
+    // GitHub render file rows inside web components, and a plain TreeWalker
+    // would miss everything inside the shadow tree.
+    function visit(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const v = node.nodeValue || '';
+        if (!v) return;
+        const parent = node.parentElement;
+        if (parent) {
+          const tag = parent.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return;
+          const cs = window.getComputedStyle(parent);
+          if (cs.display === 'none' || cs.visibility === 'hidden') return;
+        }
+        nodes.push({ node, start: total });
+        parts.push(v);
+        total += v.length;
+        return;
+      }
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tag = node.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return;
+        const cs = window.getComputedStyle(node);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return;
+        if (node.shadowRoot) visit(node.shadowRoot);
+      }
+      for (let c = node.firstChild; c; c = c.nextSibling) visit(c);
+    }
+    visit(document.body);
+    if (total === 0) return false;
+    const fullLower = parts.join('').toLowerCase();
+    const sel = window.getSelection();
+    let curStart = 0;
+    let curEnd = 0;
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].node === range.startContainer) curStart = nodes[i].start + range.startOffset;
+        if (nodes[i].node === range.endContainer) curEnd = nodes[i].start + range.endOffset;
+      }
+    }
+    let idx;
+    if (backward) {
+      const before = curStart > 0 ? curStart - 1 : -1;
+      idx = before >= 0 ? fullLower.lastIndexOf(queryLower, before) : -1;
+      if (idx < 0) idx = fullLower.lastIndexOf(queryLower);
+    } else {
+      idx = fullLower.indexOf(queryLower, curEnd);
+      if (idx < 0) idx = fullLower.indexOf(queryLower);
+    }
+    if (idx < 0) {
+      // Clear any prior find highlight.
+      if (typeof CSS !== 'undefined' && CSS.highlights) CSS.highlights.delete('bridge-find');
+      return false;
+    }
+    function locate(pos) {
+      let lo = 0, hi = nodes.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (nodes[mid].start <= pos) lo = mid;
+        else hi = mid - 1;
+      }
+      return { node: nodes[lo].node, offset: pos - nodes[lo].start };
+    }
+    const a = locate(idx);
+    const b = locate(idx + query.length);
+    const r = document.createRange();
+    r.setStart(a.node, a.offset);
+    r.setEnd(b.node, b.offset);
+    // Render the match via CSS Custom Highlights — visible regardless of
+    // user-select, doesn't fight the user's own selection, and clearly
+    // distinguishable from a manual blue text-selection.
+    if (typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined') {
+      if (!document.getElementById('__bridge-find-style')) {
+        const st = document.createElement('style');
+        st.id = '__bridge-find-style';
+        st.textContent = '::highlight(bridge-find) { background-color: #ffd33d; color: #000; }';
+        document.head.appendChild(st);
+      }
+      CSS.highlights.set('bridge-find', new Highlight(r));
+    }
+    // Also drop a regular selection so Cmd-C off the match copies it.
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+    const rect = r.getBoundingClientRect();
+    if (rect.top < 0 || rect.bottom > window.innerHeight || rect.left < 0 || rect.right > window.innerWidth) {
+      const target = a.node.parentElement || document.body;
+      target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }
+    return true;
+  })()`;
+}
+
 const MODIFIER_BITS: Record<ModifierKey, number> = {
   Alt: 1,
   Control: 2,
@@ -1181,6 +1290,24 @@ export class BrowserSession extends EventEmitter {
       case "mouseleave":
         if (this.lastHoveredHref !== null) this.clearHover();
         return;
+      case "find": {
+        const query = action.query;
+        if (!query) return;
+        const backward = action.direction === "prev";
+        const fromStart = !!action.fromStart;
+        // Custom find via TreeWalker rather than window.find(), which silently
+        // skips text inside elements that have `user-select: none` (file
+        // trees, nav menus, etc — common on GitHub). We walk all text nodes
+        // ourselves, build a flat string with index→node mapping, and
+        // construct a Range over the match. Range selection ignores
+        // user-select, so the screencast renders the highlight normally.
+        const expr = findOnPageScript(query, backward, fromStart);
+        await this.send("Runtime.evaluate", {
+          expression: expr,
+          returnByValue: true,
+        });
+        return;
+      }
       case "setViewport": {
         const targetContentW = Math.max(200, Math.round(action.width));
         const targetContentH = Math.max(150, Math.round(action.height));
