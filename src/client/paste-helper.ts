@@ -59,6 +59,10 @@ const NAV_KEYS = new Set([
   "PageDown",
 ]);
 
+// Non-character keys we forward in both modes — Escape closes remote dialogs,
+// Tab moves focus inside the remote page, Enter submits/activates.
+const CONTROL_KEYS = new Set(["Escape", "Tab", "Enter"]);
+
 function modifiersFromEvent(e: KeyboardEvent): ModifierKey[] {
   const mods: ModifierKey[] = [];
   if (e.altKey) mods.push("Alt");
@@ -178,15 +182,45 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
     applyState();
   });
 
-  // Forward navigation keys to the remote. preventDefault keeps the local
-  // input's caret pinned at our programmatic baseline; the authoritative
-  // post-keystroke state comes back via setRemoteState.
+  // Forward keystrokes to the remote. preventDefault keeps the local input's
+  // caret pinned at our programmatic baseline; the authoritative post-keystroke
+  // state comes back via setRemoteState.
+  //
+  // Skipped here:
+  //  - pure modifier presses (Shift/Ctrl/Alt/Meta alone)
+  //  - Cmd-letter chords — native paths handle these (Cmd-C/V via copy/paste
+  //    events on the helper, Cmd-A via the selectionchange detector). Forwarding
+  //    them via WebSocket.send inside the keydown stack also re-triggers the
+  //    macOS Apple-menu escalation that the helper exists to avoid.
+  //  - in selection mode, Ctrl-A / Ctrl-E — selectionchange detects those.
+  //  - in field mode, plain printable keys — input events forward them as
+  //    `type` actions so we don't double-send.
   el.addEventListener("keydown", (e) => {
-    if (!NAV_KEYS.has(e.key)) return;
-    e.preventDefault();
+    if (e.key === "Meta" || e.key === "Control" || e.key === "Alt" || e.key === "Shift") {
+      return;
+    }
+    if (e.metaKey) return;
+
     const modifiers = modifiersFromEvent(e);
-    send({ type: "key", key: e.key, code: e.code, modifiers, phase: "press" });
-    dbg("nav-key", { key: e.key, modifiers });
+    const forward = (label: string) => {
+      e.preventDefault();
+      send({ type: "key", key: e.key, code: e.code, modifiers, phase: "press" });
+      dbg(label, { key: e.key, modifiers });
+    };
+
+    if (NAV_KEYS.has(e.key)) {
+      forward("nav-key");
+      return;
+    }
+    if (CONTROL_KEYS.has(e.key) || /^F\d{1,2}$/.test(e.key)) {
+      forward("control-key");
+      return;
+    }
+    if (e.key.length === 1) {
+      if (state.field) return;
+      if (e.ctrlKey && (e.key === "a" || e.key === "e")) return;
+      forward("char-key");
+    }
   });
 
   // In field mode, observe local edits and forward them to the remote so the
