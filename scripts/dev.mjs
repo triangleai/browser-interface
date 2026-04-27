@@ -31,29 +31,51 @@ start("npx", ["tsc", "-p", "tsconfig.server.json", "--watch", "--preserveWatchOu
 start("node", ["scripts/build-client.mjs", "--watch"]);
 
 // Server runner: re-launch the CLI when dist changes. Pass through user args.
+// We wait for the old server to actually exit before spawning a new one —
+// otherwise two server processes briefly run in parallel, both attach to the
+// same Chrome over CDP, and the racing attach/screencast calls lock Chrome up.
 const userArgs = process.argv.slice(2);
 let server = null;
 let restartTimer = null;
+let pendingRestart = false;
+
+function spawnServer() {
+  server = spawn("node", ["dist/server/cli.js", ...userArgs], {
+    cwd: root,
+    stdio: "inherit",
+  });
+  procs.push(server);
+  server.on("exit", () => {
+    server = null;
+    if (pendingRestart) {
+      pendingRestart = false;
+      spawnServer();
+    }
+  });
+}
 
 async function restart() {
   if (restartTimer) clearTimeout(restartTimer);
   restartTimer = setTimeout(() => {
     if (server) {
+      pendingRestart = true;
       server.kill("SIGTERM");
+    } else {
+      spawnServer();
     }
-    server = spawn("node", ["dist/server/cli.js", ...userArgs], {
-      cwd: root,
-      stdio: "inherit",
-    });
-    procs.push(server);
   }, 400);
 }
 
 import { watch } from "node:fs/promises";
 const watcher = watch(resolve(root, "dist/server"), { recursive: true });
 (async () => {
-  // initial start, even if no events have fired yet
-  setTimeout(() => restart(), 1500);
+  // Fallback start: if tsc had nothing to emit (incremental cache up to date),
+  // the fs watcher never fires and we'd never launch the server. Skip if a
+  // spawn has already happened or is pending.
+  setTimeout(() => {
+    if (server || pendingRestart || restartTimer) return;
+    restart();
+  }, 1500);
   for await (const _ of watcher) {
     restart();
   }
