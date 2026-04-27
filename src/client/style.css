@@ -541,6 +541,32 @@ body.out-of-focus .frame {
   display: none;
 }
 
+/* DEBUG-VISIBLE paste helper. Mirrors the remote DOM's selection (padded with
+   spaces) so native Cmd-C copies the right text. Sized for visibility in the
+   status bar while we work out the clipboard plumbing — once it's stable this
+   element will go back to being visually-hidden. */
+.paste-helper {
+  flex: 0 0 auto;
+  width: 220px;
+  font: 10px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: #0a0c10;
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  caret-color: var(--accent);
+}
+
+.paste-helper:focus {
+  border-color: var(--ok);
+}
+
+.paste-helper::selection {
+  background: rgba(79, 140, 255, 0.45);
+  color: var(--fg);
+}
+
 /* Subtle resize affordance in the status bar's right edge — two opposing
    diagonal arrows (up-left, down-right), drawn in the same stroke style as
    the toolbar's back/forward icons. Doesn't overlap the page content. */

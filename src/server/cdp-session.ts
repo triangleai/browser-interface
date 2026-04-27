@@ -7,6 +7,7 @@ import type {
   ModifierKey,
   PageStateMessage,
   ScreenshotMessage,
+  SelectionMessage,
   TabInfo,
   TabsMessage,
   VisibilityMessage,
@@ -189,6 +190,7 @@ export interface BrowserSessionEvents {
   visibility: (msg: VisibilityMessage) => void;
   inactive: (msg: InactiveTabMessage) => void;
   hover: (msg: HoverMessage) => void;
+  selection: (msg: SelectionMessage) => void;
   closed: () => void;
 }
 
@@ -248,6 +250,13 @@ export class BrowserSession extends EventEmitter {
   // means "not yet measured." Cleared on tab switch.
   private chromeBarWidthDiff: number | null = null;
   private chromeBarHeightDiff: number | null = null;
+  // Cached plain-text remote selection. Pushed to clients on change so a copy
+  // event's synchronous clipboardData population doesn't have to wait for a
+  // CDP round-trip. Refreshed after click/key dispatches that could change
+  // selection state.
+  private lastSelectionText = "";
+  private selectionPollTimer: NodeJS.Timeout | null = null;
+  private selectionPollPending = false;
 
   constructor(private opts: BrowserSessionOptions = {}) {
     super();
@@ -636,6 +645,48 @@ export class BrowserSession extends EventEmitter {
     }
   }
 
+  // Leading-edge throttle for the selection-text lookup. Identical shape to
+  // scheduleHoverCheck: fire immediately, then enforce a cooldown, with any
+  // refresh requests during the cooldown coalescing into one trailing poll.
+  private scheduleSelectionPoll() {
+    if (this.selectionPollTimer) {
+      this.selectionPollPending = true;
+      return;
+    }
+    void this.checkSelection();
+    this.selectionPollTimer = setTimeout(() => {
+      this.selectionPollTimer = null;
+      if (this.selectionPollPending) {
+        this.selectionPollPending = false;
+        this.scheduleSelectionPoll();
+      }
+    }, 100);
+  }
+
+  private async checkSelection(): Promise<void> {
+    if (!this.client || !this.sessionId) return;
+    try {
+      const evalRes = (await withTimeout(
+        this.send<{ result: { value?: unknown } }>("Runtime.evaluate", {
+          expression: "(document.getSelection()?.toString())||''",
+          returnByValue: true,
+        }),
+        500,
+      )) as { result?: { value?: unknown } } | null;
+      const text = typeof evalRes?.result?.value === "string" ? evalRes.result.value : "";
+      if (text !== this.lastSelectionText) {
+        this.lastSelectionText = text;
+        this.emit("selection", { type: "selection", text });
+      }
+    } catch {
+      // ignore — CDP can be momentarily busy mid-navigation
+    }
+  }
+
+  getSelectionText(): string {
+    return this.lastSelectionText;
+  }
+
   private clearHover() {
     if (this.hoverTimer) {
       clearTimeout(this.hoverTimer);
@@ -924,6 +975,10 @@ export class BrowserSession extends EventEmitter {
           clickCount,
           modifiers,
         });
+        // A click can change DOM selection (caret repositioned, anchor links,
+        // shift-click range extension, etc.). Refresh the cached selection so
+        // the human's next Cmd-C has up-to-date text in clipboardData.
+        this.scheduleSelectionPoll();
         return;
       }
       case "mousemove": {
@@ -988,6 +1043,11 @@ export class BrowserSession extends EventEmitter {
           await this.send("Input.dispatchKeyEvent", downEvent);
           await this.send("Input.dispatchKeyEvent", upEvent);
         }
+        // Shift+Arrow, Ctrl/Cmd+A, etc. change the DOM selection. Refresh
+        // the cached selection text after the key dispatch so subsequent
+        // Cmd-C events get the new range. Throttled, so a held arrow key
+        // doesn't flood CDP.
+        this.scheduleSelectionPoll();
         return;
       }
       case "navigate":

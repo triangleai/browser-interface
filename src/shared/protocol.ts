@@ -221,6 +221,15 @@ export interface HoverMessage {
   href: string | null;
 }
 
+// Plain-text contents of the remote DOM's current selection. Pushed when the
+// selection changes (after click/key actions) so the client can hand it to a
+// `copy` event's clipboardData synchronously — round-tripping the selection
+// at copy time would be too slow.
+export interface SelectionMessage {
+  type: "selection";
+  text: string;
+}
+
 export type ServerMessage =
   | ReadyMessage
   | ScreenshotMessage
@@ -229,5 +238,6 @@ export type ServerMessage =
   | VisibilityMessage
   | InactiveTabMessage
   | HoverMessage
+  | SelectionMessage
   | AckMessage
   | ErrorMessage;
