@@ -2,6 +2,7 @@ import CDP from "chrome-remote-interface";
 import { EventEmitter } from "node:events";
 import type {
   ClientAction,
+  HoverMessage,
   InactiveTabMessage,
   ModifierKey,
   PageStateMessage,
@@ -187,6 +188,7 @@ export interface BrowserSessionEvents {
   tabs: (msg: TabsMessage) => void;
   visibility: (msg: VisibilityMessage) => void;
   inactive: (msg: InactiveTabMessage) => void;
+  hover: (msg: HoverMessage) => void;
   closed: () => void;
 }
 
@@ -218,6 +220,16 @@ export class BrowserSession extends EventEmitter {
   // Whether our attached tab is currently foreground-visible in real Chrome.
   // Updated from Page.screencastVisibilityChanged.
   private visible = true;
+  // Hover detection: throttled lookup of <a href> at the user's mouse position.
+  private lastMouseX = 0;
+  private lastMouseY = 0;
+  private hoverTimer: NodeJS.Timeout | null = null;
+  private hoverPending = false;
+  private lastHoveredHref: string | null = null;
+  // Idle timer that auto-clears the hovered URL ~3s after the user last
+  // hovered a link, so it lingers long enough to be selectable in the status
+  // bar but doesn't sit there permanently when the user has moved on.
+  private hoverIdleTimer: NodeJS.Timeout | null = null;
 
   constructor(private opts: BrowserSessionOptions = {}) {
     super();
@@ -533,6 +545,95 @@ export class BrowserSession extends EventEmitter {
     return this.visible;
   }
 
+  // Leading-edge throttle: fire a hover lookup immediately when the user
+  // starts moving the mouse, then enforce a cooldown so we don't flood the
+  // CDP channel. Pending mousemoves during the cooldown coalesce into one
+  // trailing lookup so the displayed URL keeps up as the mouse keeps moving.
+  private scheduleHoverCheck() {
+    if (this.hoverTimer) {
+      this.hoverPending = true;
+      return;
+    }
+    void this.checkHover();
+    this.hoverTimer = setTimeout(() => {
+      this.hoverTimer = null;
+      if (this.hoverPending) {
+        this.hoverPending = false;
+        this.scheduleHoverCheck();
+      }
+    }, 120);
+  }
+
+  private async checkHover(): Promise<void> {
+    if (!this.client || !this.sessionId) return;
+    const x = this.lastMouseX;
+    const y = this.lastMouseY;
+    try {
+      const evalRes = (await withTimeout(
+        this.send<{ result: { value?: unknown } }>("Runtime.evaluate", {
+          // elementFromPoint returns the topmost element at the coords; closest('a')
+          // walks up to find the nearest anchor ancestor (so hovering an icon or
+          // span inside a link still resolves to the link's href).
+          expression: `(()=>{const el=document.elementFromPoint(${x},${y});return el?(el.closest('a')?.href||null):null})()`,
+          returnByValue: true,
+        }),
+        500,
+      )) as { result?: { value?: unknown } } | null;
+      const href =
+        typeof evalRes?.result?.value === "string" ? (evalRes.result.value as string) : null;
+      if (href !== null) {
+        // Cursor is on a link — show it (if new) and cancel any pending
+        // auto-clear so the URL stays visible as long as the user keeps the
+        // cursor on a link, even if they stop moving the mouse entirely.
+        if (href !== this.lastHoveredHref) {
+          this.lastHoveredHref = href;
+          this.emit("hover", { type: "hover", href });
+        }
+        this.cancelHoverIdle();
+      } else if (this.lastHoveredHref !== null) {
+        // Cursor moved off a link onto whitespace within the frame; this is
+        // when the auto-clear countdown should start.
+        this.armHoverIdle();
+      }
+    } catch {
+      // ignore — CDP can be momentarily busy mid-navigation
+    }
+  }
+
+  private armHoverIdle(timeoutMs = 3000) {
+    // Don't extend a running timer — if multiple "moved off" events arrive
+    // in quick succession (e.g. cursor moves to whitespace then leaves the
+    // frame), the deadline stays measured from the first transition.
+    if (this.hoverIdleTimer) return;
+    this.hoverIdleTimer = setTimeout(() => {
+      this.hoverIdleTimer = null;
+      this.clearHover();
+    }, timeoutMs);
+  }
+
+  private cancelHoverIdle() {
+    if (this.hoverIdleTimer) {
+      clearTimeout(this.hoverIdleTimer);
+      this.hoverIdleTimer = null;
+    }
+  }
+
+  private clearHover() {
+    if (this.hoverTimer) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+    if (this.hoverIdleTimer) {
+      clearTimeout(this.hoverIdleTimer);
+      this.hoverIdleTimer = null;
+    }
+    this.hoverPending = false;
+    if (this.lastHoveredHref !== null) {
+      this.lastHoveredHref = null;
+      this.emit("hover", { type: "hover", href: null });
+    }
+  }
+
   // One-shot screenshot used to seed a freshly-connected UI client with a
   // current frame. Page.startScreencast is event-driven and only emits when
   // the page paints, so a static page would otherwise leave the UI stuck on
@@ -611,6 +712,7 @@ export class BrowserSession extends EventEmitter {
     // Now we own the new session. Tear down the old one.
     const oldSessionId = this.sessionId;
     await this.stopScreencast();
+    this.clearHover();
     if (oldSessionId) {
       // Fire-and-forget — the new session is already established and a slow
       // detach on the old session shouldn't block the switch.
@@ -814,6 +916,9 @@ export class BrowserSession extends EventEmitter {
           buttons,
           modifiers: modifierMask(action.modifiers),
         });
+        this.lastMouseX = action.x;
+        this.lastMouseY = action.y;
+        this.scheduleHoverCheck();
         return;
       }
       case "scroll": {
@@ -902,6 +1007,13 @@ export class BrowserSession extends EventEmitter {
         return;
       case "refocus":
         await this.refocus();
+        return;
+      case "mouseleave":
+        // Cursor left the bridge's screen frame entirely. If there's a
+        // hovered link still showing, start the auto-clear countdown — the
+        // user might be moving down to copy it, but if they don't come back,
+        // the URL shouldn't sit there forever.
+        if (this.lastHoveredHref !== null) this.armHoverIdle();
         return;
       case "reviveTab":
         // Force the discarded tab back to life by reloading its renderer.

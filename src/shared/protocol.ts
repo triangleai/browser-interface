@@ -89,6 +89,14 @@ export interface ReviveTabAction {
   type: "reviveTab";
 }
 
+// User's pointer left the bridge's screen frame. Lets the server arm the
+// hovered-link auto-clear timer without waiting for further mousemoves —
+// otherwise a URL hovered just before the cursor left would sit visible
+// indefinitely.
+export interface MouseLeaveAction {
+  type: "mouseleave";
+}
+
 export type ClientAction =
   | ClickAction
   | MouseMoveAction
@@ -103,7 +111,8 @@ export type ClientAction =
   | NewTabAction
   | CloseTabAction
   | RefocusAction
-  | ReviveTabAction;
+  | ReviveTabAction
+  | MouseLeaveAction;
 
 export interface ClientActionMessage {
   type: "action";
@@ -193,6 +202,14 @@ export interface InactiveTabMessage {
   tabId: string;
 }
 
+// URL of the link currently hovered in the remote page (or null when nothing
+// is hovered). Detected server-side via Runtime.evaluate using the bridge's
+// own mousemove coordinates, throttled so it doesn't flood the CDP channel.
+export interface HoverMessage {
+  type: "hover";
+  href: string | null;
+}
+
 export type ServerMessage =
   | ReadyMessage
   | ScreenshotMessage
@@ -200,5 +217,6 @@ export type ServerMessage =
   | TabsMessage
   | VisibilityMessage
   | InactiveTabMessage
+  | HoverMessage
   | AckMessage
   | ErrorMessage;

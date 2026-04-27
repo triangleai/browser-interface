@@ -154,10 +154,6 @@ body {
   min-height: 24px;
 }
 
-.statusbar-spacer {
-  flex: 1 1 auto;
-}
-
 .cdp-endpoint {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color: var(--fg-dim);
@@ -170,11 +166,57 @@ body {
   display: none;
 }
 
+.hover-link {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  /* Take all space left by the right-side meter cluster; size to content
+     naturally and only ellipse when the URL can't fit. min-width: 0 lets
+     flex shrink past the content size so ellipsis kicks in instead of
+     pushing the meters off-screen. */
+  flex: 1 1 auto;
+  min-width: 0;
+  /* It's an <a> — make it look like dim text by default and let click open
+     in the user's current browser. Right-click → "Copy Link Address" still
+     works for users who want to grab the URL. */
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.hover-link:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
+.hover-link:empty {
+  /* Hidden but still occupies the flex track so the right-side meter
+     cluster stays anchored to the right edge. */
+  pointer-events: none;
+}
+
+.meter-group {
+  display: inline-flex;
+  align-items: center;
+  /* Tight pairing so the endpoint sits flush against the fps box. */
+  gap: 3px;
+}
+
 .fps {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: var(--fg-dim);
   white-space: nowrap;
-  min-width: 48px;
+  /* Fixed width so the FPS box doesn't grow with content (keeps the CDP
+     endpoint anchored). Sized to fit "60 fps" — the longest realistic value —
+     in the meter-cluster's monospace font. Right-aligned so the trailing "fps"
+     unit stays visually pinned. Format is always "N fps" or "— fps" so the
+     widest and shortest values differ by at most one character, keeping the
+     CDP endpoint visually flush against the FPS text. */
+  width: 42px;
   text-align: right;
 }
 

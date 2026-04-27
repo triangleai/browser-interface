@@ -21,6 +21,12 @@
           placeholder="https://…"
         />
       </form>
+      <button
+        id="open-external"
+        class="nav"
+        title="Open this URL in your current browser"
+        aria-label="Open in this browser"
+      >↗</button>
     </header>
     <div id="toast" class="toast" hidden></div>
     <main class="stage" id="stage" tabindex="0">
@@ -46,13 +52,21 @@
         </div>
       </div>
       <footer class="statusbar">
-        <span id="cdp-endpoint" class="cdp-endpoint" title="CDP target"></span>
-        <span class="statusbar-spacer"></span>
+        <a
+          id="hover-link"
+          class="hover-link"
+          title=""
+          target="_blank"
+          rel="noopener noreferrer"
+        ></a>
         <span id="loading-indicator" class="loading-indicator" hidden>
           <span class="loading-dot"></span>
           loading
         </span>
-        <span id="fps" class="fps" title="Screencast frames per second">— fps</span>
+        <span class="meter-group">
+          <span id="cdp-endpoint" class="cdp-endpoint" title="CDP target"></span>
+          <span id="fps" class="fps" title="Screencast frames per second">— fps</span>
+        </span>
         <span id="status" class="status" data-state="connecting">connecting…</span>
       </footer>
     </main>

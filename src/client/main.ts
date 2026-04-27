@@ -21,10 +21,12 @@ const els = {
   reload: document.getElementById("reload") as HTMLButtonElement,
   urlForm: document.getElementById("url-form") as HTMLFormElement,
   url: document.getElementById("url") as HTMLInputElement,
+  openExternal: document.getElementById("open-external") as HTMLButtonElement,
   status: document.getElementById("status") as HTMLSpanElement,
   cdpEndpoint: document.getElementById("cdp-endpoint") as HTMLSpanElement,
   loadingIndicator: document.getElementById("loading-indicator") as HTMLSpanElement,
   fps: document.getElementById("fps") as HTMLSpanElement,
+  hoverLink: document.getElementById("hover-link") as HTMLAnchorElement,
   stage: document.getElementById("stage") as HTMLElement,
   frame: document.getElementById("frame") as HTMLDivElement,
   screen: document.getElementById("screen") as HTMLImageElement,
@@ -191,6 +193,17 @@ class Bridge {
       case "inactive":
         showInactiveOverlay();
         return;
+      case "hover":
+        els.hoverLink.textContent = msg.href ?? "";
+        els.hoverLink.title = msg.href ?? "";
+        // Real anchor href so left-click opens in the user's current browser
+        // and right-click → "Copy Link Address" works.
+        if (msg.href) {
+          els.hoverLink.href = msg.href;
+        } else {
+          els.hoverLink.removeAttribute("href");
+        }
+        return;
       case "error":
         console.warn("[bridge] server error:", msg.message);
         showToast(msg.message);
@@ -289,12 +302,9 @@ function recordFrame() {
 function refreshFps() {
   const now = performance.now();
   while (frameTimes.length && now - frameTimes[0]! > 1000) frameTimes.shift();
-  // Also clear "live" status if we haven't seen a frame in a while.
-  if (frameTimes.length === 0) {
-    els.fps.textContent = "idle";
-  } else {
-    els.fps.textContent = `${frameTimes.length} fps`;
-  }
+  // Format kept consistent ("N fps" or "— fps") so the FPS box width doesn't
+  // appear to fluctuate next to the CDP endpoint.
+  els.fps.textContent = frameTimes.length === 0 ? "— fps" : `${frameTimes.length} fps`;
 }
 setInterval(refreshFps, 500);
 
@@ -320,6 +330,13 @@ new ResizeObserver(fitFrame).observe(els.stage);
 const mouseTarget = els.frame;
 
 mouseTarget.addEventListener("contextmenu", (e) => e.preventDefault());
+
+mouseTarget.addEventListener("mouseleave", () => {
+  // Lets the server start its hovered-link auto-clear timer without waiting
+  // for further mousemoves. Without this, a URL hovered just before the
+  // cursor exits the frame would linger indefinitely.
+  bridge.send({ type: "mouseleave" });
+});
 
 mouseTarget.addEventListener("mousedown", (e) => {
   e.preventDefault();
@@ -446,11 +463,25 @@ els.url.addEventListener("blur", () => {
   urlEditing = false;
 });
 
+function normalizeUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 els.urlForm.addEventListener("submit", (e) => {
   e.preventDefault();
-  let url = els.url.value.trim();
+  const url = normalizeUrl(els.url.value);
   if (!url) return;
-  if (!/^[a-z]+:\/\//i.test(url)) url = `https://${url}`;
   bridge.send({ type: "navigate", url });
   els.url.blur();
+});
+
+els.openExternal.addEventListener("click", () => {
+  // Open the address-bar URL in whatever browser the bridge UI is running in
+  // (Safari, the user's daily Chrome window, etc.) — different from "navigate"
+  // which sends the URL into the bridged Chrome session.
+  const url = normalizeUrl(els.url.value);
+  if (!url) return;
+  window.open(url, "_blank", "noopener,noreferrer");
 });
