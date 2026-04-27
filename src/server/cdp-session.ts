@@ -230,6 +230,24 @@ export class BrowserSession extends EventEmitter {
   // hovered a link, so it lingers long enough to be selectable in the status
   // bar but doesn't sit there permanently when the user has moved on.
   private hoverIdleTimer: NodeJS.Timeout | null = null;
+  // Cached Browser.getWindowForTarget result for the attached tab. Looked up
+  // lazily on first setViewport, then reused for subsequent resize ticks so a
+  // drag doesn't re-roundtrip per move. Cleared on tab switch.
+  private windowId: number | null = null;
+  // Set true after the first user-driven setViewport on this connection. Used
+  // to one-shot Emulation.clearDeviceMetricsOverride so any --width/--height
+  // CLI override doesn't keep clamping the rendered viewport once the user
+  // takes manual control via the resize handle.
+  private clearedEmulation = false;
+  // Chrome-bar offset between OS-window dims (what Browser.setWindowBounds
+  // accepts) and content-area dims (what the user actually sees, and what
+  // the bridge UI's resize handle is sized in). Computed on first resize via
+  // getWindowBounds vs window.innerWidth/innerHeight, then reused so a drag
+  // doesn't get re-measured every tick. In headless this is (0, 0); in real
+  // Chrome the height diff is the URL/tabs/bookmarks bar (~80–150px). Null
+  // means "not yet measured." Cleared on tab switch.
+  private chromeBarWidthDiff: number | null = null;
+  private chromeBarHeightDiff: number | null = null;
 
   constructor(private opts: BrowserSessionOptions = {}) {
     super();
@@ -723,6 +741,12 @@ export class BrowserSession extends EventEmitter {
 
     this.sessionId = attached.sessionId;
     this.targetId = targetId;
+    // Different tabs can live in different OS windows (split Chrome window
+    // setups), so invalidate the cached windowId and chrome-bar measurements.
+    // Re-fetched on the next resize-handle drag.
+    this.windowId = null;
+    this.chromeBarWidthDiff = null;
+    this.chromeBarHeightDiff = null;
 
     // Domain enables are best-effort and timeout-bounded — if a domain doesn't
     // come back within a short window the page is probably wedged, but we
@@ -1015,6 +1039,84 @@ export class BrowserSession extends EventEmitter {
         // the URL shouldn't sit there forever.
         if (this.lastHoveredHref !== null) this.armHoverIdle();
         return;
+      case "setViewport": {
+        const targetContentW = Math.max(200, Math.round(action.width));
+        const targetContentH = Math.max(150, Math.round(action.height));
+        if (!this.client || !this.targetId) return;
+        // First resize on this connection: drop any --width/--height emulation
+        // override so the natural content area drives the screencast viewport.
+        // Otherwise Browser.setWindowBounds would resize the OS window but the
+        // page would keep rendering at the original CLI-pinned dimensions.
+        if (!this.clearedEmulation) {
+          this.clearedEmulation = true;
+          try {
+            await this.send("Emulation.clearDeviceMetricsOverride", {});
+          } catch {
+            // No prior override → CDP returns an error. Fine to ignore.
+          }
+        }
+        if (this.windowId === null) {
+          try {
+            const res = (await rawSend(this.client, "Browser.getWindowForTarget", {
+              targetId: this.targetId,
+            })) as { windowId: number };
+            this.windowId = res.windowId;
+          } catch (err) {
+            console.warn("[browser-interface] getWindowForTarget failed:", err);
+            return;
+          }
+        }
+        // First resize: figure out the chrome-bar offset so subsequent
+        // setWindowBounds calls hit the requested *content* size, not a
+        // chrome-bar-shrunken version. We compare the OS-window dims (from
+        // Browser.getWindowBounds) against the content-area dims (from
+        // window.innerWidth/innerHeight) — the difference is the chrome
+        // height (URL+tabs+bookmarks) plus any horizontal frame padding.
+        if (this.chromeBarHeightDiff === null) {
+          let osW = 0;
+          let osH = 0;
+          let contentW = 0;
+          let contentH = 0;
+          try {
+            const { bounds } = (await rawSend(this.client, "Browser.getWindowBounds", {
+              windowId: this.windowId,
+            })) as { bounds: { width: number; height: number } };
+            osW = bounds.width;
+            osH = bounds.height;
+          } catch (err) {
+            console.warn("[browser-interface] getWindowBounds failed:", err);
+          }
+          try {
+            const evalRes = (await this.send("Runtime.evaluate", {
+              expression:
+                "JSON.stringify({w: window.innerWidth, h: window.innerHeight})",
+              returnByValue: true,
+            })) as { result: { value?: unknown } };
+            const v = JSON.parse(String(evalRes.result.value ?? "{}"));
+            if (typeof v.w === "number") contentW = v.w;
+            if (typeof v.h === "number") contentH = v.h;
+          } catch (err) {
+            console.warn("[browser-interface] innerWidth eval failed:", err);
+          }
+          this.chromeBarWidthDiff =
+            osW > 0 && contentW > 0 ? Math.max(0, osW - contentW) : 0;
+          this.chromeBarHeightDiff =
+            osH > 0 && contentH > 0 ? Math.max(0, osH - contentH) : 0;
+        }
+        try {
+          await rawSend(this.client, "Browser.setWindowBounds", {
+            windowId: this.windowId,
+            bounds: {
+              width: targetContentW + (this.chromeBarWidthDiff ?? 0),
+              height: targetContentH + (this.chromeBarHeightDiff ?? 0),
+              windowState: "normal",
+            },
+          });
+        } catch (err) {
+          console.warn("[browser-interface] setWindowBounds failed:", err);
+        }
+        return;
+      }
       case "reviveTab":
         // Force the discarded tab back to life by reloading its renderer.
         // This is destructive (drops in-page state), so the UI prompts before

@@ -35,6 +35,8 @@ const els = {
   inactiveRevive: document.getElementById("inactive-revive") as HTMLButtonElement,
   inactiveCancel: document.getElementById("inactive-cancel") as HTMLButtonElement,
   toast: document.getElementById("toast") as HTMLDivElement,
+  resizeHandle: document.getElementById("resize-handle") as HTMLButtonElement,
+  resizeReadout: document.getElementById("resize-readout") as HTMLDivElement,
 };
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
@@ -140,14 +142,16 @@ class Bridge {
     });
   }
 
-  send(action: ClientAction) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  send(action: ClientAction): string | null {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return null;
+    const id = String(nextActionId++);
     const msg: ClientActionMessage = {
       type: "action",
-      id: String(nextActionId++),
+      id,
       action,
     };
     this.ws.send(JSON.stringify(msg));
+    return id;
   }
 
   private handleServerMessage(msg: ServerMessage) {
@@ -207,8 +211,16 @@ class Bridge {
       case "error":
         console.warn("[bridge] server error:", msg.message);
         showToast(msg.message);
+        if (msg.id !== undefined && msg.id === viewportInFlightId) {
+          viewportInFlightId = null;
+          maybeSendViewport();
+        }
         return;
       case "ack":
+        if (msg.id !== undefined && msg.id === viewportInFlightId) {
+          viewportInFlightId = null;
+          maybeSendViewport();
+        }
         return;
     }
   }
@@ -324,6 +336,117 @@ function showToast(message: string, durationMs = 4000) {
 
 window.addEventListener("resize", fitFrame);
 new ResizeObserver(fitFrame).observe(els.stage);
+
+// ── Resize handle ────────────────────────────────────────────────────────────
+
+// Drag state for the status-bar resize grip. We capture the cursor's starting
+// screen position and the remote viewport at drag-start, then treat further
+// cursor movement as a delta on the remote dimensions. The local frame is
+// not sized from the cursor — fitFrame keeps auto-fitting the stage at the
+// remote's new aspect each time a screencast frame arrives.
+//
+// Adaptive pacing: only one outstanding setViewport in flight at a time.
+// mousemove updates `pendingViewport`; we send immediately if no prior
+// request is in flight, otherwise wait for that one's ack and then send the
+// latest pending. Send rate auto-adapts to whatever Chrome can keep up with
+// — a fixed-interval throttle was previously starving the screencast
+// pipeline during fast drags because Chrome can't reflow + paint + screencast
+// at 20Hz on heavy pages.
+let resizing = false;
+let resizeDragStart: {
+  startX: number;
+  startY: number;
+  startW: number;
+  startH: number;
+  pxPerCssX: number;
+  pxPerCssY: number;
+} | null = null;
+let pendingViewport: { width: number; height: number } | null = null;
+let lastSentViewport: { width: number; height: number } | null = null;
+let viewportInFlightId: string | null = null;
+const MIN_REMOTE_W = 320;
+const MIN_REMOTE_H = 240;
+
+function maybeSendViewport() {
+  if (!pendingViewport) return;
+  if (viewportInFlightId !== null) return;
+  const dims = pendingViewport;
+  if (
+    lastSentViewport &&
+    dims.width === lastSentViewport.width &&
+    dims.height === lastSentViewport.height
+  ) {
+    pendingViewport = null;
+    return;
+  }
+  pendingViewport = null;
+  lastSentViewport = dims;
+  const id = bridge.send({ type: "setViewport", width: dims.width, height: dims.height });
+  if (id !== null) viewportInFlightId = id;
+}
+
+function queueViewportUpdate(width: number, height: number) {
+  pendingViewport = { width, height };
+  maybeSendViewport();
+}
+
+function updateResizeReadout(remoteW: number, remoteH: number) {
+  els.resizeReadout.textContent = `${remoteW} × ${remoteH}`;
+}
+
+els.resizeHandle.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const rect = els.frame.getBoundingClientRect();
+  resizeDragStart = {
+    startX: e.clientX,
+    startY: e.clientY,
+    startW: viewport.width,
+    startH: viewport.height,
+    pxPerCssX: viewport.width / rect.width,
+    pxPerCssY: viewport.height / rect.height,
+  };
+  resizing = true;
+  document.body.classList.add("resizing");
+  els.resizeReadout.hidden = false;
+  updateResizeReadout(viewport.width, viewport.height);
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!resizeDragStart) return;
+  e.preventDefault();
+  const dx = e.clientX - resizeDragStart.startX;
+  const dy = e.clientY - resizeDragStart.startY;
+  const remoteW = Math.max(
+    MIN_REMOTE_W,
+    Math.round(resizeDragStart.startW + dx * resizeDragStart.pxPerCssX),
+  );
+  const remoteH = Math.max(
+    MIN_REMOTE_H,
+    Math.round(resizeDragStart.startH + dy * resizeDragStart.pxPerCssY),
+  );
+  queueViewportUpdate(remoteW, remoteH);
+  updateResizeReadout(remoteW, remoteH);
+});
+
+window.addEventListener("mouseup", (e) => {
+  if (!resizeDragStart) return;
+  if (e.button !== 0) return;
+  resizeDragStart = null;
+  resizing = false;
+  document.body.classList.remove("resizing");
+  els.resizeReadout.hidden = true;
+  // The latest cursor delta is already in `pendingViewport`; if the previous
+  // request is still in flight, maybeSendViewport will pick it up when the
+  // ack arrives. No explicit flush needed.
+  maybeSendViewport();
+});
+
+// Touch the `resizing` flag via void so TS doesn't flag it unused — it's
+// available for future code that might want to suppress unrelated work
+// during a drag (e.g. hover lookups).
+void resizing;
 
 // ── Mouse / scroll ───────────────────────────────────────────────────────────
 
