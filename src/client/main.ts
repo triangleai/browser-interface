@@ -1,5 +1,6 @@
 import type { ModifierKey, MouseButton, ServerMessage } from "../shared/protocol.js";
 import { createBridge } from "./bridge.js";
+import { setupFindBar } from "./find-bar.js";
 import { setupPasteHelper } from "./paste-helper.js";
 import { setupResize } from "./resize.js";
 import { setupStatusBar } from "./statusbar.js";
@@ -36,6 +37,11 @@ const els = {
   resizeHandle: document.getElementById("resize-handle") as HTMLButtonElement,
   resizeReadout: document.getElementById("resize-readout") as HTMLDivElement,
   pasteHelper: document.getElementById("paste-helper") as HTMLInputElement,
+  findBar: document.getElementById("find-bar") as HTMLDivElement,
+  findInput: document.getElementById("find-input") as HTMLInputElement,
+  findPrev: document.getElementById("find-prev") as HTMLButtonElement,
+  findNext: document.getElementById("find-next") as HTMLButtonElement,
+  findClose: document.getElementById("find-close") as HTMLButtonElement,
 };
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
@@ -179,6 +185,15 @@ const toolbar = setupToolbar({
   openExternal: els.openExternal,
   send: bridge.send,
   onUrlBlur: () => pasteHelper.focus(),
+});
+setupFindBar({
+  bar: els.findBar,
+  input: els.findInput,
+  prevBtn: els.findPrev,
+  nextBtn: els.findNext,
+  closeBtn: els.findClose,
+  send: bridge.send,
+  onClose: () => pasteHelper.focus(),
 });
 bridge.connect();
 

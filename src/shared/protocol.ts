@@ -128,6 +128,21 @@ export interface SetViewportAction {
   height: number;
 }
 
+// In-page find driven by the bridge UI's own find bar. Chrome's native find
+// is part of browser chrome and isn't part of the screencast, so we run the
+// search ourselves via window.find() on the remote and let the resulting
+// selection scroll into view in the captured frame.
+export interface FindAction {
+  type: "find";
+  query: string;
+  direction?: "next" | "prev";
+  // Restart from the top of the page rather than continuing from the current
+  // selection. Set when the query changes so an incremental edit doesn't
+  // skip earlier matches that already sit before the previous match's
+  // position in the document.
+  fromStart?: boolean;
+}
+
 export type ClientAction =
   | ClickAction
   | MouseDownAction
@@ -146,7 +161,8 @@ export type ClientAction =
   | RefocusAction
   | ReviveTabAction
   | MouseLeaveAction
-  | SetViewportAction;
+  | SetViewportAction
+  | FindAction;
 
 export interface ClientActionMessage {
   type: "action";
