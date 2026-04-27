@@ -1,4 +1,4 @@
-import type { ModifierKey, ServerMessage } from "../shared/protocol.js";
+import type { ModifierKey, MouseButton, ServerMessage } from "../shared/protocol.js";
 import { createBridge } from "./bridge.js";
 import { setupPasteHelper } from "./paste-helper.js";
 import { setupResize } from "./resize.js";
@@ -212,63 +212,111 @@ mouseTarget.addEventListener("mouseleave", () => {
   bridge.send({ type: "mouseleave" });
 });
 
-mouseTarget.addEventListener("mousedown", (e) => {
-  e.preventDefault();
-  pasteHelper.focus();
-});
-
 // Re-anchor focus once at startup so the first keystroke after page load
 // already lands on the paste-helper. Toolbar handles the URL-bar blur path
 // via its onUrlBlur callback.
 window.addEventListener("load", () => pasteHelper.focus());
 
-mouseTarget.addEventListener("click", (e) => {
+// Drag-aware pointer forwarding. We send distinct mousedown / mouseup so the
+// remote sees press at one point and release at another — that's what makes
+// drag-select work. While the button's held, mousemoves carry the active
+// buttons array and skip throttling, since each frame can extend a text
+// selection on the page and missing intermediate moves shows up as choppy
+// selection edges. Outside a drag, mousemove is throttled (hover-only).
+let dragging = false;
+
+function mouseDbg(event: string, fields?: Record<string, unknown>) {
+  if (fields) console.log(`[mouse] ${event}`, fields);
+  else console.log(`[mouse] ${event}`);
+}
+
+function mouseButtonName(button: number): MouseButton {
+  if (button === 2) return "right";
+  if (button === 1) return "middle";
+  return "left";
+}
+
+function mouseButtonsFromBits(bits: number): MouseButton[] {
+  const buttons: MouseButton[] = [];
+  if (bits & 1) buttons.push("left");
+  if (bits & 2) buttons.push("right");
+  if (bits & 4) buttons.push("middle");
+  return buttons;
+}
+
+mouseTarget.addEventListener("mousedown", (e) => {
   e.preventDefault();
+  pasteHelper.focus();
+  mouseDbg("mousedown-event", { button: e.button, isVisible, detail: e.detail });
   if (!isVisible) {
-    // The screen frame is stale (Chrome stops compositing backgrounded tabs).
-    // Treat any click as "wake this tab back up" rather than a misdirected
-    // click on a frozen image.
     bridge.send({ type: "refocus" });
     return;
   }
   const { x, y } = pointToViewport(e);
-  bridge.send({
-    type: "click",
+  const id = bridge.send({
+    type: "mousedown",
     x,
     y,
-    button: e.button === 2 ? "right" : e.button === 1 ? "middle" : "left",
+    button: mouseButtonName(e.button),
     clickCount: e.detail || 1,
     modifiers: modifiersFromEvent(e),
   });
+  dragging = true;
+  mouseDbg("mousedown-sent", { id, x, y, button: e.button });
 });
 
-mouseTarget.addEventListener("auxclick", (e) => {
-  if (e.button !== 1 && e.button !== 2) return;
-  e.preventDefault();
-  if (!isVisible) {
-    bridge.send({ type: "refocus" });
+// Listen on window so a release outside the frame (user dragged off the edge
+// while text-selecting) still finalizes the gesture on the page side.
+window.addEventListener("mouseup", (e) => {
+  if (!dragging) {
+    mouseDbg("mouseup-skip-not-dragging", { button: e.button });
     return;
   }
+  dragging = false;
+  if (!isVisible) return;
   const { x, y } = pointToViewport(e);
-  bridge.send({
-    type: "click",
+  const id = bridge.send({
+    type: "mouseup",
     x,
     y,
-    button: e.button === 2 ? "right" : "middle",
+    button: mouseButtonName(e.button),
     clickCount: e.detail || 1,
     modifiers: modifiersFromEvent(e),
   });
+  mouseDbg("mouseup-sent", { id, x, y, button: e.button });
 });
 
 let lastMoveAt = 0;
+let moveCounter = 0;
+function dispatchMouseMove(e: MouseEvent) {
+  if (!isVisible) return;
+  const { x, y } = pointToViewport(e);
+  const buttons = mouseButtonsFromBits(e.buttons);
+  bridge.send({
+    type: "mousemove",
+    x,
+    y,
+    buttons,
+    modifiers: modifiersFromEvent(e),
+  });
+  // Sample log so the console isn't drowned during a fast drag.
+  moveCounter++;
+  if (moveCounter % 10 === 1) {
+    mouseDbg("mousemove-sample", { x, y, buttons, dragging, count: moveCounter });
+  }
+}
+
 mouseTarget.addEventListener("mousemove", (e) => {
-  if (!isVisible) return; // don't dispatch into a stale frame
-  // Throttle to ~30 fps to avoid drowning the bridge in mousemove traffic.
+  if (dragging) return;
   const now = performance.now();
   if (now - lastMoveAt < 33) return;
   lastMoveAt = now;
-  const { x, y } = pointToViewport(e);
-  bridge.send({ type: "mousemove", x, y, modifiers: modifiersFromEvent(e) });
+  dispatchMouseMove(e);
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!dragging) return;
+  dispatchMouseMove(e);
 });
 
 mouseTarget.addEventListener(

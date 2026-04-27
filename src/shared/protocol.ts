@@ -14,6 +14,27 @@ export interface ClickAction {
   modifiers?: ModifierKey[];
 }
 
+// Distinct press / release for gestures whose start and end coordinates
+// differ — text drag-select, drag-and-drop, etc. The unified ClickAction is
+// still available for callers that just want an atomic click at a point.
+export interface MouseDownAction {
+  type: "mousedown";
+  x: number;
+  y: number;
+  button?: MouseButton;
+  clickCount?: number;
+  modifiers?: ModifierKey[];
+}
+
+export interface MouseUpAction {
+  type: "mouseup";
+  x: number;
+  y: number;
+  button?: MouseButton;
+  clickCount?: number;
+  modifiers?: ModifierKey[];
+}
+
 export interface MouseMoveAction {
   type: "mousemove";
   x: number;
@@ -109,6 +130,8 @@ export interface SetViewportAction {
 
 export type ClientAction =
   | ClickAction
+  | MouseDownAction
+  | MouseUpAction
   | MouseMoveAction
   | TypeAction
   | KeyAction

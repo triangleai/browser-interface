@@ -5,6 +5,7 @@ import type {
   HoverMessage,
   InactiveTabMessage,
   ModifierKey,
+  MouseButton,
   PageStateMessage,
   ScreenshotMessage,
   SelectionMessage,
@@ -1028,17 +1029,55 @@ export class BrowserSession extends EventEmitter {
         this.scheduleSelectionPoll();
         return;
       }
+      case "mousedown": {
+        const button = action.button ?? "left";
+        await this.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x: action.x,
+          y: action.y,
+          button,
+          buttons: button === "left" ? 1 : button === "right" ? 2 : 4,
+          clickCount: action.clickCount ?? 1,
+          modifiers: modifierMask(action.modifiers),
+        });
+        // No selection poll on press — selection isn't finalized until the
+        // matching mouseup. A drag-select extends through mousemoves and
+        // settles on release; polling here would fire mid-gesture.
+        return;
+      }
+      case "mouseup": {
+        const button = action.button ?? "left";
+        await this.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x: action.x,
+          y: action.y,
+          button,
+          buttons: 0,
+          clickCount: action.clickCount ?? 1,
+          modifiers: modifierMask(action.modifiers),
+        });
+        this.scheduleSelectionPoll();
+        return;
+      }
       case "mousemove": {
-        const buttons = (action.buttons ?? []).reduce((acc, b) => {
+        const buttonsHeld = action.buttons ?? [];
+        const buttons = buttonsHeld.reduce((acc, b) => {
           if (b === "left") return acc | 1;
           if (b === "right") return acc | 2;
           if (b === "middle") return acc | 4;
           return acc;
         }, 0);
+        // CDP treats a mouseMoved with `button: "none"` (the default) as a
+        // hover. To extend a drag-select on the page side we have to name
+        // the button that's currently held — without this Chrome sees a
+        // press, then unrelated motion, then a release, and the selection
+        // never extends.
+        const button: MouseButton | "none" = buttonsHeld[0] ?? "none";
         await this.send("Input.dispatchMouseEvent", {
           type: "mouseMoved",
           x: action.x,
           y: action.y,
+          button,
           buttons,
           modifiers: modifierMask(action.modifiers),
         });
