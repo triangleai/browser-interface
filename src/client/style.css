@@ -38,14 +38,22 @@ body {
 
 .tabs {
   display: flex;
-  align-items: center;
+  /* end-align + small bottom padding lifts inactive tabs slightly off the
+     toolbar; the active tab cancels that gap with a matching negative
+     margin-bottom so its fill still reaches the toolbar. The tonal contrast
+     between this strip's background and the toolbar's lighter background
+     provides visual separation. */
+  align-items: end;
   gap: 4px;
-  padding: 6px 10px;
+  padding: 6px 10px 4px 10px;
   background: var(--bg);
-  border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex: 0 0 auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tabs:empty {
@@ -57,7 +65,7 @@ body {
   align-items: center;
   gap: 6px;
   padding: 4px 6px 4px 10px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--fg-dim);
@@ -66,23 +74,80 @@ body {
   cursor: pointer;
   white-space: nowrap;
   flex: 0 0 auto;
+  position: relative;
 }
 
-.tab:hover {
-  background: #1a1f27;
-  color: var(--fg);
+/* 1px vertical bar between adjacent inactive tabs (Chrome-style). Sits in the
+   middle of the strip's 4px flex gap. The active tab's ::before is repurposed
+   as an outdent (below), so the separator is only on inactive tabs. */
+.tab:not(.active)::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 25%;
+  bottom: 25%;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+/* Suppress the separator at the strip start and on the tab immediately after
+   the active one (the outdent already provides visual separation there). */
+.tab:not(.active):first-child::before,
+.tab.active + .tab::before {
+  display: none;
 }
 
 .tab.active {
   color: var(--fg);
   background: var(--bg-elev);
-  border-color: var(--accent);
+  border-radius: 6px 6px 0 0;
+  /* Extra padding lifts the active tab's top edge above the inactive tabs
+     and adds breathing room above the label, while extra padding-bottom +
+     matching negative margin-bottom grow the box downward to reach the
+     toolbar without shifting the label horizontally. */
+  padding-top: 8px;
+  padding-bottom: 8px;
+  /* Half-pixel extra overlap into the toolbar — without it sub-pixel rounding
+     occasionally exposes a hairline gap between the tab and the toolbar. */
+  margin-bottom: -4.5px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Outward-curving "wings" at the active tab's bottom corners that flare into
+   the toolbar — the classic browser tab look. Each wing is a 4×4 box filled
+   with the toolbar/active-tab color, with a quarter-circle scooped out of the
+   corner adjacent to the tab so the remaining lens forms a concave curve. */
+.tab.active::before,
+.tab.active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 4px;
+  height: 4px;
+  pointer-events: none;
+}
+
+.tab.active::before {
+  left: -4px;
+  background: radial-gradient(circle at top left, transparent 4px, var(--bg-elev) 4px);
+}
+
+.tab.active::after {
+  right: -4px;
+  background: radial-gradient(circle at top right, transparent 4px, var(--bg-elev) 4px);
+}
+
+.tab:not(.active):hover {
+  background: #2a313d;
+  color: var(--fg);
 }
 
 .tab.active.dimmed {
-  /* Out-of-focus in real Chrome — keep the accent border so the user knows
-     this is still the bridge's tab, but dim the title text and add a subtle
-     refocus hint. */
+  /* Out-of-focus in real Chrome — keep the lighter background so the user
+     knows this is still the bridge's tab, but dim the title text and add a
+     subtle refocus hint. */
   color: var(--fg-dim);
   cursor: pointer;
 }
@@ -109,8 +174,8 @@ body {
 }
 
 .tab .close:hover {
-  background: rgba(255, 107, 107, 0.18);
-  color: var(--err);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--fg);
 }
 
 .new-tab {
