@@ -542,11 +542,14 @@ body.out-of-focus .frame {
 }
 
 /* DEBUG-VISIBLE paste helper. Mirrors the remote DOM's selection (padded with
-   spaces) so native Cmd-C copies the right text. Sized for visibility in the
-   status bar while we work out the clipboard plumbing — once it's stable this
-   element will go back to being visually-hidden. */
+   spaces) so native Cmd-C copies the right text. Floats over the bottom-right
+   corner during development so we can watch the clipboard plumbing live —
+   once it's stable this element will go back to being visually-hidden. */
 .paste-helper {
-  flex: 0 0 auto;
+  position: fixed;
+  bottom: 4px;
+  right: 4px;
+  z-index: 50;
   width: 220px;
   font: 10px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   background: #0a0c10;

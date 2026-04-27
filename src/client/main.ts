@@ -1,8 +1,10 @@
 import type { ModifierKey, ServerMessage } from "../shared/protocol.js";
-import { createBridge, type ConnectionState } from "./bridge.js";
+import { createBridge } from "./bridge.js";
 import { setupPasteHelper } from "./paste-helper.js";
 import { setupResize } from "./resize.js";
+import { setupStatusBar } from "./statusbar.js";
 import { setupTabs } from "./tabs.js";
+import { setupToolbar } from "./toolbar.js";
 
 interface Viewport {
   width: number;
@@ -37,20 +39,7 @@ const els = {
 };
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
-let urlEditing = false;
 let isVisible = true;
-
-function setStatus(state: ConnectionState, label?: string) {
-  els.status.dataset.state = state;
-  els.status.textContent =
-    label ??
-    {
-      connecting: "connecting…",
-      connected: "connected",
-      disconnected: "disconnected",
-      error: "error",
-    }[state];
-}
 
 function fitFrame() {
   // Sets the framed image element to the largest size that fits the stage,
@@ -95,9 +84,9 @@ function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case "ready":
       viewport = msg.viewport;
-      if (!urlEditing) els.url.value = msg.url;
+      toolbar.setUrl(msg.url);
       document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
-      els.cdpEndpoint.textContent = msg.cdpEndpoint ?? "";
+      statusBar.setCdpEndpoint(msg.cdpEndpoint ?? "");
       fitFrame();
       return;
     case "screenshot": {
@@ -111,14 +100,14 @@ function handleServerMessage(msg: ServerMessage) {
       els.placeholder.classList.add("hidden");
       // If frames are arriving, the tab is alive — clear any stale inactive prompt.
       tabs.hideInactive();
-      recordFrame();
+      statusBar.recordFrame();
       fitFrame();
       return;
     }
     case "page":
-      if (!urlEditing) els.url.value = msg.url;
+      toolbar.setUrl(msg.url);
       document.title = msg.title ? `${msg.title} — Browser Interface` : "Browser Interface";
-      els.loadingIndicator.hidden = !msg.loading;
+      statusBar.setLoading(msg.loading);
       return;
     case "tabs":
       tabs.setTabs(msg.tabs);
@@ -134,15 +123,7 @@ function handleServerMessage(msg: ServerMessage) {
       tabs.showInactive();
       return;
     case "hover":
-      els.hoverLink.textContent = msg.href ?? "";
-      els.hoverLink.title = msg.href ?? "";
-      // Real anchor href so left-click opens in the user's current browser
-      // and right-click → "Copy Link Address" works.
-      if (msg.href) {
-        els.hoverLink.href = msg.href;
-      } else {
-        els.hoverLink.removeAttribute("href");
-      }
+      statusBar.setHoverLink(msg.href);
       return;
     case "selection":
       pasteHelper.setRemoteSelection(msg.text);
@@ -158,8 +139,15 @@ function handleServerMessage(msg: ServerMessage) {
   }
 }
 
+const statusBar = setupStatusBar({
+  status: els.status,
+  cdpEndpoint: els.cdpEndpoint,
+  loadingIndicator: els.loadingIndicator,
+  fps: els.fps,
+  hoverLink: els.hoverLink,
+});
 const bridge = createBridge({
-  setStatus,
+  setStatus: statusBar.setStatus,
   onMessage: handleServerMessage,
 });
 const pasteHelper = setupPasteHelper({
@@ -182,22 +170,17 @@ const tabs = setupTabs({
   inactiveCancel: els.inactiveCancel,
   send: bridge.send,
 });
+const toolbar = setupToolbar({
+  back: els.back,
+  forward: els.forward,
+  reload: els.reload,
+  urlForm: els.urlForm,
+  url: els.url,
+  openExternal: els.openExternal,
+  send: bridge.send,
+  onUrlBlur: () => pasteHelper.focus(),
+});
 bridge.connect();
-
-// ── FPS meter ────────────────────────────────────────────────────────────────
-
-const frameTimes: number[] = [];
-function recordFrame() {
-  frameTimes.push(performance.now());
-}
-function refreshFps() {
-  const now = performance.now();
-  while (frameTimes.length && now - frameTimes[0]! > 1000) frameTimes.shift();
-  // Format kept consistent ("N fps" or "— fps") so the FPS box width doesn't
-  // appear to fluctuate next to the CDP endpoint.
-  els.fps.textContent = frameTimes.length === 0 ? "— fps" : `${frameTimes.length} fps`;
-}
-setInterval(refreshFps, 500);
 
 // ── Toast (transient error display) ──────────────────────────────────────────
 
@@ -234,9 +217,9 @@ mouseTarget.addEventListener("mousedown", (e) => {
   pasteHelper.focus();
 });
 
-// Re-anchor focus when the URL bar gives it up, and once at startup so the
-// very first keystroke after page load already lands on the paste-helper.
-els.url.addEventListener("blur", () => pasteHelper.focus());
+// Re-anchor focus once at startup so the first keystroke after page load
+// already lands on the paste-helper. Toolbar handles the URL-bar blur path
+// via its onUrlBlur callback.
 window.addEventListener("load", () => pasteHelper.focus());
 
 mouseTarget.addEventListener("click", (e) => {
@@ -308,38 +291,3 @@ mouseTarget.addEventListener(
   { passive: false },
 );
 
-// ── Toolbar ──────────────────────────────────────────────────────────────────
-
-els.back.addEventListener("click", () => bridge.send({ type: "back" }));
-els.forward.addEventListener("click", () => bridge.send({ type: "forward" }));
-els.reload.addEventListener("click", () => bridge.send({ type: "reload" }));
-
-els.url.addEventListener("focus", () => {
-  urlEditing = true;
-});
-els.url.addEventListener("blur", () => {
-  urlEditing = false;
-});
-
-function normalizeUrl(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-  return /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-}
-
-els.urlForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const url = normalizeUrl(els.url.value);
-  if (!url) return;
-  bridge.send({ type: "navigate", url });
-  els.url.blur();
-});
-
-els.openExternal.addEventListener("click", () => {
-  // Open the address-bar URL in whatever browser the bridge UI is running in
-  // (Safari, the user's daily Chrome window, etc.) — different from "navigate"
-  // which sends the URL into the bridged Chrome session.
-  const url = normalizeUrl(els.url.value);
-  if (!url) return;
-  window.open(url, "_blank", "noopener,noreferrer");
-});
