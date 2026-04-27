@@ -108,6 +108,8 @@ function editorCommandsFor(key: string, mods?: ModifierKey[]): string[] {
   if (meta && k === "a") return ["SelectAll"];
   if (ctrl && k === "a") return ["MoveToBeginningOfLine"];
   if (ctrl && k === "e") return ["MoveToEndOfLine"];
+  if (ctrl && k === "k") return ["DeleteToEndOfParagraph"];
+  if (ctrl && k === "y") return ["Yank"];
   return [];
 }
 
