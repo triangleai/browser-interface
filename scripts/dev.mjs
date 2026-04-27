@@ -25,8 +25,18 @@ function start(cmd, args, opts = {}) {
   return child;
 }
 
-// Server: tsc --watch for incremental compilation into dist/server.
-start("npx", ["tsc", "-p", "tsconfig.server.json", "--watch", "--preserveWatchOutput"]);
+// Server: tsc --watch for incremental compilation into dist/server. Pass
+// --noEmitOnError so a type-error in mid-edit doesn't write half-broken JS
+// (which would otherwise trigger an unwanted server respawn before the next
+// edit fixes it).
+start("npx", [
+  "tsc",
+  "-p",
+  "tsconfig.server.json",
+  "--watch",
+  "--preserveWatchOutput",
+  "--noEmitOnError",
+]);
 // Client: esbuild watch + static copy.
 start("node", ["scripts/build-client.mjs", "--watch"]);
 
