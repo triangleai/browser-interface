@@ -46,6 +46,7 @@ export function setupFindBar(opts: FindBarOptions): FindBar {
       debounce = undefined;
     }
     bar.hidden = true;
+    send({ type: "findStop" });
     onClose();
   }
   function isVisible() {

@@ -143,6 +143,12 @@ export interface FindAction {
   fromStart?: boolean;
 }
 
+// Sent when the find bar closes. Reverts the find-mode ::selection styling
+// applied during search so subsequent user selections look normal again.
+export interface FindStopAction {
+  type: "findStop";
+}
+
 export type ClientAction =
   | ClickAction
   | MouseDownAction
@@ -162,7 +168,8 @@ export type ClientAction =
   | ReviveTabAction
   | MouseLeaveAction
   | SetViewportAction
-  | FindAction;
+  | FindAction
+  | FindStopAction;
 
 export interface ClientActionMessage {
   type: "action";
