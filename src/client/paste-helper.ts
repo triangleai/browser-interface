@@ -242,7 +242,18 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
       return;
     }
     if (e.key.length === 1) {
-      if (state.field) return;
+      if (state.field) {
+        // Ctrl-K (kill-line) and Ctrl-Y (yank) modify content rather than
+        // caret position, so selectionchange can't detect them — and letting
+        // the local helper run them would corrupt the mirrored value before
+        // the server's update arrives. Forward via keydown; preventDefault
+        // keeps the helper stable while the server runs the editor command
+        // on the remote (kill-ring is renderer-local).
+        if (e.ctrlKey && (e.key === "k" || e.key === "y")) {
+          forward("ctrl-text-cmd");
+        }
+        return;
+      }
       if (e.ctrlKey && (e.key === "a" || e.key === "e")) return;
       forward("char-key");
     }
