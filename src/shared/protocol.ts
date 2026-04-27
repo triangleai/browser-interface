@@ -97,6 +97,16 @@ export interface MouseLeaveAction {
   type: "mouseleave";
 }
 
+// Resize the remote viewport via Browser.setWindowBounds. Driven by the
+// resize handle in the bridge UI's status bar. Width/height are CSS px of
+// the page's content area; the server compensates for the chrome bar so the
+// rendered area matches what the user requested.
+export interface SetViewportAction {
+  type: "setViewport";
+  width: number;
+  height: number;
+}
+
 export type ClientAction =
   | ClickAction
   | MouseMoveAction
@@ -112,7 +122,8 @@ export type ClientAction =
   | CloseTabAction
   | RefocusAction
   | ReviveTabAction
-  | MouseLeaveAction;
+  | MouseLeaveAction
+  | SetViewportAction;
 
 export interface ClientActionMessage {
   type: "action";
