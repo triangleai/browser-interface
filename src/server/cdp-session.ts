@@ -269,10 +269,6 @@ export class BrowserSession extends EventEmitter {
   private hoverTimer: NodeJS.Timeout | null = null;
   private hoverPending = false;
   private lastHoveredHref: string | null = null;
-  // Idle timer that auto-clears the hovered URL ~3s after the user last
-  // hovered a link, so it lingers long enough to be selectable in the status
-  // bar but doesn't sit there permanently when the user has moved on.
-  private hoverIdleTimer: NodeJS.Timeout | null = null;
   // Cached Browser.getWindowForTarget result for the attached tab. Looked up
   // lazily on first setViewport, then reused for subsequent resize ticks so a
   // drag doesn't re-roundtrip per move. Cleared on tab switch.
@@ -652,39 +648,15 @@ export class BrowserSession extends EventEmitter {
       const href =
         typeof evalRes?.result?.value === "string" ? (evalRes.result.value as string) : null;
       if (href !== null) {
-        // Cursor is on a link — show it (if new) and cancel any pending
-        // auto-clear so the URL stays visible as long as the user keeps the
-        // cursor on a link, even if they stop moving the mouse entirely.
         if (href !== this.lastHoveredHref) {
           this.lastHoveredHref = href;
           this.emit("hover", { type: "hover", href });
         }
-        this.cancelHoverIdle();
       } else if (this.lastHoveredHref !== null) {
-        // Cursor moved off a link onto whitespace within the frame; this is
-        // when the auto-clear countdown should start.
-        this.armHoverIdle();
+        this.clearHover();
       }
     } catch {
       // ignore — CDP can be momentarily busy mid-navigation
-    }
-  }
-
-  private armHoverIdle(timeoutMs = 3000) {
-    // Don't extend a running timer — if multiple "moved off" events arrive
-    // in quick succession (e.g. cursor moves to whitespace then leaves the
-    // frame), the deadline stays measured from the first transition.
-    if (this.hoverIdleTimer) return;
-    this.hoverIdleTimer = setTimeout(() => {
-      this.hoverIdleTimer = null;
-      this.clearHover();
-    }, timeoutMs);
-  }
-
-  private cancelHoverIdle() {
-    if (this.hoverIdleTimer) {
-      clearTimeout(this.hoverIdleTimer);
-      this.hoverIdleTimer = null;
     }
   }
 
@@ -739,10 +711,6 @@ export class BrowserSession extends EventEmitter {
     if (this.hoverTimer) {
       clearTimeout(this.hoverTimer);
       this.hoverTimer = null;
-    }
-    if (this.hoverIdleTimer) {
-      clearTimeout(this.hoverIdleTimer);
-      this.hoverIdleTimer = null;
     }
     this.hoverPending = false;
     if (this.lastHoveredHref !== null) {
@@ -1182,11 +1150,7 @@ export class BrowserSession extends EventEmitter {
         await this.refocus();
         return;
       case "mouseleave":
-        // Cursor left the bridge's screen frame entirely. If there's a
-        // hovered link still showing, start the auto-clear countdown — the
-        // user might be moving down to copy it, but if they don't come back,
-        // the URL shouldn't sit there forever.
-        if (this.lastHoveredHref !== null) this.armHoverIdle();
+        if (this.lastHoveredHref !== null) this.clearHover();
         return;
       case "setViewport": {
         const targetContentW = Math.max(200, Math.round(action.width));
