@@ -45,7 +45,7 @@ body {
    body.orient-vertical override below). */
 .orient-toggle {
   position: fixed;
-  top: 5px;
+  top: 9px;
   left: 4px;
   z-index: 10;
   display: inline-flex;
@@ -149,7 +149,11 @@ body.orient-vertical .tab.active {
      provides visual separation. */
   align-items: end;
   gap: 4px;
-  padding: 6px 10px 4px 10px;
+  /* Extra left padding clears the position-fixed hamburger (~26px wide
+     including its 4px page inset) so the first tab is visible past it
+     when scrolled all the way to the left, and only slides under during
+     a rightward scroll. */
+  padding: 6px 10px 4px 30px;
   background: linear-gradient(to bottom, var(--bg) 0 calc(100% - 1px), var(--border) calc(100% - 1px));
   overflow-x: auto;
   overflow-y: hidden;
