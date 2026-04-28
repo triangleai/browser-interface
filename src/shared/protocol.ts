@@ -143,8 +143,9 @@ export interface FindAction {
   fromStart?: boolean;
 }
 
-// Sent when the find bar closes. Reverts the find-mode ::selection styling
-// applied during search so subsequent user selections look normal again.
+// Sent when the find bar closes. Tears down the in-page find state — removes
+// match highlights, clears the cached range list, and removes the injected
+// stylesheet — so the page returns to its default rendering.
 export interface FindStopAction {
   type: "findStop";
 }
@@ -290,6 +291,15 @@ export interface SelectionMessage {
   };
 }
 
+// Result of a find action: how many matches the page contains and which one
+// is currently active (1-based; 0/0 when there's no match). Sent each time
+// the server runs a find so the find bar can render an "X of Y" label.
+export interface FindResultMessage {
+  type: "findResult";
+  current: number;
+  total: number;
+}
+
 export type ServerMessage =
   | ReadyMessage
   | ScreenshotMessage
@@ -299,5 +309,6 @@ export type ServerMessage =
   | InactiveTabMessage
   | HoverMessage
   | SelectionMessage
+  | FindResultMessage
   | AckMessage
   | ErrorMessage;

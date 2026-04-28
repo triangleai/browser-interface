@@ -543,6 +543,19 @@ body.out-of-focus .frame {
   border-color: #5a6b80;
 }
 
+.find-count {
+  color: #8b949e;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+  text-align: right;
+  padding-right: 2px;
+}
+
+.find-count.no-match {
+  color: #f85149;
+}
+
 .find-btn {
   background: transparent;
   color: #c9d1d9;

@@ -9,6 +9,7 @@ import type { ClientAction } from "../shared/protocol.js";
 export interface FindBarOptions {
   bar: HTMLElement;
   input: HTMLInputElement;
+  count: HTMLElement;
   prevBtn: HTMLButtonElement;
   nextBtn: HTMLButtonElement;
   closeBtn: HTMLButtonElement;
@@ -20,13 +21,29 @@ export interface FindBar {
   show: () => void;
   hide: () => void;
   isVisible: () => boolean;
+  setResult: (current: number, total: number) => void;
 }
 
 export function setupFindBar(opts: FindBarOptions): FindBar {
-  const { bar, input, prevBtn, nextBtn, closeBtn, send, onClose } = opts;
+  const { bar, input, count, prevBtn, nextBtn, closeBtn, send, onClose } = opts;
 
   let lastQuery = "";
   let debounce: number | undefined;
+
+  function setResult(current: number, total: number) {
+    if (!input.value) {
+      count.textContent = "";
+      count.classList.remove("no-match");
+      return;
+    }
+    if (total === 0) {
+      count.textContent = "No matches";
+      count.classList.add("no-match");
+      return;
+    }
+    count.textContent = `${current} of ${total}`;
+    count.classList.remove("no-match");
+  }
 
   function find(direction: "next" | "prev", fromStart = false) {
     const query = input.value;
@@ -46,6 +63,8 @@ export function setupFindBar(opts: FindBarOptions): FindBar {
       debounce = undefined;
     }
     bar.hidden = true;
+    count.textContent = "";
+    count.classList.remove("no-match");
     send({ type: "findStop" });
     onClose();
   }
@@ -117,5 +136,5 @@ export function setupFindBar(opts: FindBarOptions): FindBar {
     true,
   );
 
-  return { show, hide, isVisible };
+  return { show, hide, isVisible, setResult };
 }
