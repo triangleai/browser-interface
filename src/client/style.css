@@ -48,8 +48,22 @@ body {
   padding: 6px 10px 4px 10px;
   background: var(--bg);
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-y: none;
   flex: 0 0 auto;
   scrollbar-width: none;
+  position: relative;
+}
+
+.tabs::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--border);
+  pointer-events: none;
 }
 
 .tabs::-webkit-scrollbar {
@@ -101,6 +115,8 @@ body {
 .tab.active {
   color: var(--fg);
   background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-bottom: none;
   border-radius: 6px 6px 0 0;
   /* Extra padding lifts the active tab's top edge above the inactive tabs
      and adds breathing room above the label, while extra padding-bottom +
@@ -108,9 +124,8 @@ body {
      toolbar without shifting the label horizontally. */
   padding-top: 8px;
   padding-bottom: 8px;
-  /* Half-pixel extra overlap into the toolbar — without it sub-pixel rounding
-     occasionally exposes a hairline gap between the tab and the toolbar. */
-  margin-bottom: -4.5px;
+  /* Overlap the generated toolbar-top rule under the active tab. */
+  margin-bottom: -5px;
   position: relative;
   z-index: 1;
 }
@@ -124,19 +139,29 @@ body {
   content: "";
   position: absolute;
   bottom: 0;
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   pointer-events: none;
 }
 
 .tab.active::before {
   left: -4px;
-  background: radial-gradient(circle at top left, transparent 4px, var(--bg-elev) 4px);
+  background: radial-gradient(
+    circle at top left,
+    transparent 3px,
+    var(--border) 3px 4px,
+    var(--bg-elev) 4px
+  );
 }
 
 .tab.active::after {
   right: -4px;
-  background: radial-gradient(circle at top right, transparent 4px, var(--bg-elev) 4px);
+  background: radial-gradient(
+    circle at top right,
+    transparent 3px,
+    var(--border) 3px 4px,
+    var(--bg-elev) 4px
+  );
 }
 
 .tab:not(.active):hover {
@@ -200,9 +225,11 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--bg-elev);
+  background: linear-gradient(to bottom, transparent 0 1px, var(--bg-elev) 1px);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  margin-top: -1px;
+  padding-top: 9px;
 }
 
 .statusbar {
