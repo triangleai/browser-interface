@@ -156,6 +156,7 @@ export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandl
   session.on("inactive", broadcast);
   session.on("hover", broadcast);
   session.on("selection", broadcast);
+  session.on("findResult", broadcast);
   session.on("closed", () => {
     broadcast({ type: "error", message: "browser session closed" });
     for (const ws of clients) ws.close();

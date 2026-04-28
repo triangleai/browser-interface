@@ -39,6 +39,7 @@ const els = {
   pasteHelper: document.getElementById("paste-helper") as HTMLInputElement,
   findBar: document.getElementById("find-bar") as HTMLDivElement,
   findInput: document.getElementById("find-input") as HTMLInputElement,
+  findCount: document.getElementById("find-count") as HTMLSpanElement,
   findPrev: document.getElementById("find-prev") as HTMLButtonElement,
   findNext: document.getElementById("find-next") as HTMLButtonElement,
   findClose: document.getElementById("find-close") as HTMLButtonElement,
@@ -134,6 +135,9 @@ function handleServerMessage(msg: ServerMessage) {
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
       return;
+    case "findResult":
+      findBar.setResult(msg.current, msg.total);
+      return;
     case "error":
       console.warn("[bridge] server error:", msg.message);
       showToast(msg.message);
@@ -186,9 +190,10 @@ const toolbar = setupToolbar({
   send: bridge.send,
   onUrlBlur: () => pasteHelper.focus(),
 });
-setupFindBar({
+const findBar = setupFindBar({
   bar: els.findBar,
   input: els.findInput,
+  count: els.findCount,
   prevBtn: els.findPrev,
   nextBtn: els.findNext,
   closeBtn: els.findClose,
