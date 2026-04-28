@@ -261,11 +261,16 @@ export interface InactiveTabMessage {
 }
 
 // URL of the link currently hovered in the remote page (or null when nothing
-// is hovered). Detected server-side via Runtime.evaluate using the bridge's
-// own mousemove coordinates, throttled so it doesn't flood the CDP channel.
+// is hovered) plus the cursor the remote would render at that point. Detected
+// server-side via Runtime.evaluate using the bridge's own mousemove
+// coordinates, throttled so it doesn't flood the CDP channel. The client
+// applies `cursor` to the screencast frame so the pointer matches what the
+// remote browser would show (pointer over links, text I-beam over inputs,
+// etc.).
 export interface HoverMessage {
   type: "hover";
   href: string | null;
+  cursor?: string;
 }
 
 // Snapshot of the remote DOM's current selection / focused-field state.

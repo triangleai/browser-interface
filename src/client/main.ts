@@ -143,6 +143,9 @@ function handleServerMessage(msg: ServerMessage) {
       return;
     case "hover":
       statusBar.setHoverLink(msg.href);
+      // Mirror the remote's cursor on the screencast frame so hovering a
+      // link shows pointer, an input shows the I-beam, etc.
+      els.frame.style.cursor = msg.cursor || "default";
       return;
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
@@ -337,6 +340,9 @@ mouseTarget.addEventListener("mouseleave", () => {
   // for further mousemoves. Without this, a URL hovered just before the
   // cursor exits the frame would linger indefinitely.
   bridge.send({ type: "mouseleave" });
+  // Reset the frame's cursor so the bridge UI's own areas (toolbar, etc.)
+  // aren't stuck mirroring a remote pointer/text-cursor.
+  els.frame.style.cursor = "";
 });
 
 // Re-anchor focus once at startup so the first keystroke after page load
