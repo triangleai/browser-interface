@@ -43,6 +43,8 @@ const els = {
   findPrev: document.getElementById("find-prev") as HTMLButtonElement,
   findNext: document.getElementById("find-next") as HTMLButtonElement,
   findClose: document.getElementById("find-close") as HTMLButtonElement,
+  orientToggle: document.getElementById("orient-toggle") as HTMLButtonElement,
+  sidebarResize: document.getElementById("sidebar-resize") as HTMLDivElement,
 };
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
@@ -211,6 +213,101 @@ const findBar = setupFindBar({
   onClose: () => pasteHelper.focus(),
 });
 bridge.connect();
+
+// ── Tab orientation (horizontal strip ⇄ vertical sidebar) ────────────────
+const ORIENT_KEY = "browser-interface:orient";
+const SIDEBAR_KEY = "browser-interface:sidebar-width";
+const SIDEBAR_MIN = 120;
+const SIDEBAR_MAX = 480;
+// Below this, dragging snaps the sidebar shut and switches back to the
+// horizontal strip. Acts as a "close by drag" affordance — drag the handle
+// far enough left and the sidebar hides itself.
+const SIDEBAR_CLOSE_AT = 80;
+// Width applied when opening the sidebar if the persisted width is too
+// narrow to be useful (e.g., last drag landed at the minimum). Keeps
+// customized larger widths intact.
+const SIDEBAR_OPEN_DEFAULT = 240;
+const SIDEBAR_OPEN_FLOOR = 180;
+
+type Orient = "horizontal" | "vertical";
+function applyOrient(o: Orient) {
+  document.body.classList.toggle("orient-vertical", o === "vertical");
+}
+const storedOrient = localStorage.getItem(ORIENT_KEY);
+applyOrient(storedOrient === "vertical" ? "vertical" : "horizontal");
+
+function applySidebarWidth(px: number) {
+  const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(px)));
+  document.documentElement.style.setProperty("--tab-sidebar-width", `${clamped}px`);
+  return clamped;
+}
+const storedWidth = Number(localStorage.getItem(SIDEBAR_KEY));
+if (Number.isFinite(storedWidth) && storedWidth > 0) applySidebarWidth(storedWidth);
+
+els.orientToggle.addEventListener("click", () => {
+  const next: Orient = document.body.classList.contains("orient-vertical")
+    ? "horizontal"
+    : "vertical";
+  applyOrient(next);
+  localStorage.setItem(ORIENT_KEY, next);
+  // Bump sub-comfortable widths up to a sane default on open — otherwise
+  // a previous drag-to-min release leaves the sidebar reopening tiny.
+  if (next === "vertical") {
+    const cur = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--tab-sidebar-width"),
+    );
+    if (!Number.isFinite(cur) || cur < SIDEBAR_OPEN_FLOOR) {
+      applySidebarWidth(SIDEBAR_OPEN_DEFAULT);
+      localStorage.setItem(SIDEBAR_KEY, String(SIDEBAR_OPEN_DEFAULT));
+    }
+  }
+  fitFrame();
+});
+
+// Sidebar resize: drag the handle, update the CSS variable on the fly,
+// persist on release. fitFrame after each update so the screencast image
+// re-fits the new stage width.
+let sidebarDragging = false;
+let sidebarStartX = 0;
+let sidebarStartW = 0;
+els.sidebarResize.addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  sidebarDragging = true;
+  sidebarStartX = e.clientX;
+  const cur = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--tab-sidebar-width"),
+  );
+  sidebarStartW = Number.isFinite(cur) && cur > 0 ? cur : 220;
+  els.sidebarResize.classList.add("dragging");
+  document.body.classList.add("dragging-sidebar");
+});
+window.addEventListener("mousemove", (e) => {
+  if (!sidebarDragging) return;
+  const desired = sidebarStartW + (e.clientX - sidebarStartX);
+  if (desired < SIDEBAR_CLOSE_AT) {
+    // Drag-to-close: switch to horizontal and end the drag. The width itself
+    // stays at its last sane value so re-opening the sidebar feels the same.
+    sidebarDragging = false;
+    els.sidebarResize.classList.remove("dragging");
+    document.body.classList.remove("dragging-sidebar");
+    applyOrient("horizontal");
+    localStorage.setItem(ORIENT_KEY, "horizontal");
+    fitFrame();
+    return;
+  }
+  applySidebarWidth(desired);
+  fitFrame();
+});
+window.addEventListener("mouseup", () => {
+  if (!sidebarDragging) return;
+  sidebarDragging = false;
+  els.sidebarResize.classList.remove("dragging");
+  document.body.classList.remove("dragging-sidebar");
+  const cur = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--tab-sidebar-width"),
+  );
+  if (Number.isFinite(cur) && cur > 0) localStorage.setItem(SIDEBAR_KEY, String(Math.round(cur)));
+});
 
 // ── Toast (transient error display) ──────────────────────────────────────────
 

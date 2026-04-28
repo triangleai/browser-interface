@@ -1,4 +1,7 @@
 :root {
+  /* Vertical-mode tab sidebar width — overridden inline by the resize
+     handle drag, persisted via localStorage. */
+  --tab-sidebar-width: 220px;
   color-scheme: dark;
   --bg: #0e1014;
   --bg-elev: #161a21;
@@ -36,6 +39,107 @@ body {
   flex-direction: column;
 }
 
+/* The orient-toggle floats over the top-left of the tab strip so the strip
+   is full-width and tabs scroll behind it. Position-fixed in viewport
+   coords; only present in horizontal mode (hidden in vertical via the
+   body.orient-vertical override below). */
+.orient-toggle {
+  position: fixed;
+  top: 5px;
+  left: 4px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  /* Solid bg so tabs scrolling left underneath are cleanly obscured. */
+  background: var(--bg);
+  border: none;
+  border-radius: 4px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0;
+}
+
+.orient-toggle:hover {
+  color: var(--fg);
+  background: var(--bg-elev);
+}
+
+/* Wraps toolbar + stage so the tabs strip can sit beside them as a sidebar
+   in vertical mode. min-height/min-width: 0 lets the inner stage shrink
+   below its intrinsic size when the viewport is small. */
+.main-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* ── Vertical orientation: tabs become a left sidebar ───────────────────── */
+body.orient-vertical {
+  flex-direction: row;
+  /* In horizontal mode the tab strip's bottom edge provides the page's top
+     visual frame. Once tabs move to a sidebar, the toolbar would float
+     against the window edge — add a top border that runs over both the
+     sidebar and the right column to put a frame back. */
+  border-top: 1px solid var(--border);
+}
+
+body.orient-vertical .tabs {
+  flex-direction: column;
+  align-items: stretch;
+  width: var(--tab-sidebar-width);
+  flex: 0 0 auto;
+  padding: 8px 8px;
+  gap: 4px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body.orient-vertical .tabs::after {
+  display: none;
+}
+
+body.orient-vertical .orient-toggle {
+  display: none;
+}
+
+body.orient-vertical .tab {
+  max-width: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+
+body.orient-vertical .tab .title {
+  max-width: none;
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+/* Drop the horizontal-only ornaments (vertical separator between inactive
+   tabs, the active tab's curved bottom wings, and the active tab's pulled-
+   down margin) — they only make sense for the strip layout. */
+body.orient-vertical .tab:not(.active)::before,
+body.orient-vertical .tab.active::before,
+body.orient-vertical .tab.active::after {
+  display: none;
+}
+
+body.orient-vertical .tab.active {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .tabs {
   display: flex;
   /* end-align + small bottom padding lifts inactive tabs slightly off the
@@ -46,24 +150,12 @@ body {
   align-items: end;
   gap: 4px;
   padding: 6px 10px 4px 10px;
-  background: var(--bg);
+  background: linear-gradient(to bottom, var(--bg) 0 calc(100% - 1px), var(--border) calc(100% - 1px));
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-y: none;
   flex: 0 0 auto;
   scrollbar-width: none;
-  position: relative;
-}
-
-.tabs::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1px;
-  background: var(--border);
-  pointer-events: none;
 }
 
 .tabs::-webkit-scrollbar {
@@ -105,8 +197,9 @@ body {
   pointer-events: none;
 }
 
-/* Suppress the separator at the strip start and on the tab immediately after
-   the active one (the outdent already provides visual separation there). */
+/* Suppress the separator at the strip start and on the tab immediately
+   after the active one (the outdent already provides visual separation
+   there). */
 .tab:not(.active):first-child::before,
 .tab.active + .tab::before {
   display: none;
@@ -662,6 +755,57 @@ body.out-of-focus .frame {
   overflow: hidden;
   white-space: nowrap;
   z-index: -1;
+}
+
+/* Vertical-mode sidebar resizer — fixed-position thin strip riding on the
+   sidebar's right edge. Only visible when the sidebar exists. The 1px
+   visual line uses ::before so the hit area can be wider (6px) than the
+   visible line. */
+.sidebar-resize {
+  display: none;
+}
+
+body.orient-vertical .sidebar-resize {
+  display: block;
+  position: fixed;
+  top: 1px; /* below body's top border */
+  bottom: 0;
+  left: calc(var(--tab-sidebar-width) - 3px);
+  width: 6px;
+  cursor: col-resize;
+  z-index: 30;
+  background: transparent;
+}
+
+.sidebar-resize::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+  background: transparent;
+  transition: background 100ms ease;
+}
+
+.sidebar-resize:hover::before,
+.sidebar-resize.dragging::before {
+  background: var(--accent);
+}
+
+/* While dragging the sidebar handle, suppress the frame's mouse forwarding
+   and force the cursor everywhere so a user can drag past the frame
+   without unintentionally clicking the remote. */
+body.dragging-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.dragging-sidebar .frame,
+body.dragging-sidebar .stage,
+body.dragging-sidebar .toolbar {
+  pointer-events: none;
 }
 
 /* Subtle resize affordance in the status bar's right edge — two opposing
