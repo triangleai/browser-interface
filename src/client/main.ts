@@ -143,6 +143,9 @@ function handleServerMessage(msg: ServerMessage) {
       return;
     case "hover":
       statusBar.setHoverLink(msg.href);
+      // Mirror the remote's cursor on the screencast frame so hovering a
+      // link shows pointer, an input shows the I-beam, etc.
+      els.frame.style.cursor = msg.cursor || "default";
       return;
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
@@ -214,15 +217,35 @@ const findBar = setupFindBar({
 });
 bridge.connect();
 
+// ── Suppress Safari's swipe-to-navigate at the tab strip's edges ─────────
+// CSS overscroll-behavior on html/body isn't honored by Safari for the
+// trackpad page-swipe gesture, so we preventDefault wheel events on the
+// tab strip when the user is overscrolling horizontally past either edge.
+// Internal horizontal scrolling still works normally.
+els.tabs.addEventListener(
+  "wheel",
+  (e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    const atLeft = els.tabs.scrollLeft <= 0;
+    const atRight =
+      els.tabs.scrollLeft + els.tabs.clientWidth >= els.tabs.scrollWidth - 1;
+    if ((atLeft && e.deltaX < 0) || (atRight && e.deltaX > 0)) {
+      e.preventDefault();
+    }
+  },
+  { passive: false },
+);
+
 // ── Tab orientation (horizontal strip ⇄ vertical sidebar) ────────────────
 const ORIENT_KEY = "browser-interface:orient";
 const SIDEBAR_KEY = "browser-interface:sidebar-width";
-const SIDEBAR_MIN = 120;
+const SIDEBAR_MIN = 80;
 const SIDEBAR_MAX = 480;
 // Below this, dragging snaps the sidebar shut and switches back to the
 // horizontal strip. Acts as a "close by drag" affordance — drag the handle
-// far enough left and the sidebar hides itself.
-const SIDEBAR_CLOSE_AT = 80;
+// far enough left and the sidebar hides itself. Stays below MIN so a
+// drag-to-min release doesn't immediately close.
+const SIDEBAR_CLOSE_AT = 60;
 // Width applied when opening the sidebar if the persisted width is too
 // narrow to be useful (e.g., last drag landed at the minimum). Keeps
 // customized larger widths intact.
@@ -337,6 +360,9 @@ mouseTarget.addEventListener("mouseleave", () => {
   // for further mousemoves. Without this, a URL hovered just before the
   // cursor exits the frame would linger indefinitely.
   bridge.send({ type: "mouseleave" });
+  // Reset the frame's cursor so the bridge UI's own areas (toolbar, etc.)
+  // aren't stuck mirroring a remote pointer/text-cursor.
+  els.frame.style.cursor = "";
 });
 
 // Re-anchor focus once at startup so the first keystroke after page load

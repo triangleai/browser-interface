@@ -423,6 +423,7 @@ export class BrowserSession extends EventEmitter {
   private hoverTimer: NodeJS.Timeout | null = null;
   private hoverPending = false;
   private lastHoveredHref: string | null = null;
+  private lastCursor: string = "default";
   // Cached Browser.getWindowForTarget result for the attached tab. Looked up
   // lazily on first setViewport, then reused for subsequent resize ticks so a
   // drag doesn't re-roundtrip per move. Cleared on tab switch.
@@ -790,24 +791,87 @@ export class BrowserSession extends EventEmitter {
     const y = this.lastMouseY;
     try {
       const evalRes = (await withTimeout(
-        this.send<{ result: { value?: unknown } }>("Runtime.evaluate", {
-          // elementFromPoint returns the topmost element at the coords; closest('a')
-          // walks up to find the nearest anchor ancestor (so hovering an icon or
-          // span inside a link still resolves to the link's href).
-          expression: `(()=>{const el=document.elementFromPoint(${x},${y});return el?(el.closest('a')?.href||null):null})()`,
-          returnByValue: true,
-        }),
+        this.send<{ result: { value?: { href: string | null; cursor: string } } }>(
+          "Runtime.evaluate",
+          {
+            // elementFromPoint returns the topmost element at the coords. We
+            // collect two pieces of info: the nearest anchor's href (for the
+            // status-bar hover URL) and an effective cursor — first by
+            // walking ancestors looking for a non-`auto` computed cursor,
+            // then by inferring from the element's role for common cases
+            // (links, inputs/textareas, contenteditable). getComputedStyle
+            // returns `auto` rather than the resolved cursor for the default
+            // case, so we handle the resolution ourselves.
+            expression: `(()=>{
+              const el = document.elementFromPoint(${x}, ${y});
+              if (!el) return { href: null, cursor: 'default' };
+              let cursor = 'auto';
+              for (let cur = el; cur && cur !== document.documentElement; cur = cur.parentElement) {
+                const cs = window.getComputedStyle(cur);
+                if (cs.cursor && cs.cursor !== 'auto') { cursor = cs.cursor; break; }
+              }
+              if (cursor === 'auto') {
+                if (el.closest('a[href]')) cursor = 'pointer';
+                else if (el.closest('textarea, [contenteditable=true], [contenteditable=""]')) cursor = 'text';
+                else if (el.closest('input')) {
+                  const t = (el.closest('input').getAttribute('type') || 'text').toLowerCase();
+                  cursor = (t === 'text' || t === 'search' || t === 'email' || t === 'url' || t === 'tel' || t === 'password' || t === 'number') ? 'text' : 'default';
+                } else {
+                  // Plain page text — show the I-beam only when the point is
+                  // actually inside a glyph rect, not just somewhere over a
+                  // text-containing element. Browsers do roughly this: hover
+                  // over the word → I-beam; hover the line gap, paragraph
+                  // margin, or trailing whitespace beyond the line → default.
+                  // We get the nearest caret position, build a 1-char range
+                  // adjacent to it, and check whether the point is inside any
+                  // of its client rects.
+                  let isText = false;
+                  try {
+                    const cp = document.caretPositionFromPoint
+                      ? document.caretPositionFromPoint(${x}, ${y})
+                      : (document.caretRangeFromPoint && document.caretRangeFromPoint(${x}, ${y}));
+                    const node = cp && (cp.offsetNode || cp.startContainer);
+                    const offset = cp ? (cp.offset !== undefined ? cp.offset : (cp.startOffset || 0)) : 0;
+                    if (node && node.nodeType === 3) {
+                      const text = node.nodeValue || '';
+                      const p = node.parentElement;
+                      const us = p ? (window.getComputedStyle(p).userSelect || window.getComputedStyle(p).webkitUserSelect) : '';
+                      if (us !== 'none') {
+                        const r = document.createRange();
+                        const inRects = (s, e) => {
+                          if (s < 0 || e > text.length || s >= e) return false;
+                          r.setStart(node, s);
+                          r.setEnd(node, e);
+                          const rs = r.getClientRects();
+                          for (let i = 0; i < rs.length; i++) {
+                            const rr = rs[i];
+                            if (${x} >= rr.left && ${x} <= rr.right && ${y} >= rr.top && ${y} <= rr.bottom) return true;
+                          }
+                          return false;
+                        };
+                        if (inRects(offset, offset + 1) || inRects(offset - 1, offset)) isText = true;
+                      }
+                    }
+                  } catch (_) {}
+                  cursor = isText ? 'text' : 'default';
+                }
+              }
+              const a = el.closest('a');
+              return { href: (a && a.href) || null, cursor };
+            })()`,
+            returnByValue: true,
+          },
+        ),
         500,
-      )) as { result?: { value?: unknown } } | null;
-      const href =
-        typeof evalRes?.result?.value === "string" ? (evalRes.result.value as string) : null;
-      if (href !== null) {
-        if (href !== this.lastHoveredHref) {
-          this.lastHoveredHref = href;
-          this.emit("hover", { type: "hover", href });
-        }
-      } else if (this.lastHoveredHref !== null) {
-        this.clearHover();
+      )) as { result?: { value?: { href: string | null; cursor: string } } } | null;
+      const v = evalRes?.result?.value;
+      if (!v) return;
+      const href = v.href;
+      const cursor = v.cursor || "default";
+      if (href !== this.lastHoveredHref || cursor !== this.lastCursor) {
+        this.lastHoveredHref = href;
+        this.lastCursor = cursor;
+        this.emit("hover", { type: "hover", href, cursor });
       }
     } catch {
       // ignore — CDP can be momentarily busy mid-navigation
@@ -867,9 +931,10 @@ export class BrowserSession extends EventEmitter {
       this.hoverTimer = null;
     }
     this.hoverPending = false;
-    if (this.lastHoveredHref !== null) {
+    if (this.lastHoveredHref !== null || this.lastCursor !== "default") {
       this.lastHoveredHref = null;
-      this.emit("hover", { type: "hover", href: null });
+      this.lastCursor = "default";
+      this.emit("hover", { type: "hover", href: null, cursor: "default" });
     }
   }
 
