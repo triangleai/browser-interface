@@ -330,6 +330,9 @@ body {
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav:hover {
