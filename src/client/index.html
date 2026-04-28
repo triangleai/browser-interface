@@ -7,18 +7,45 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <nav id="tabs" class="tabs" aria-label="Tabs"></nav>
-    <!-- include: partials/toolbar.html -->
+    <nav id="tabs" class="tabs" aria-label="Tabs">
+      <button
+        id="orient-toggle"
+        class="orient-toggle"
+        type="button"
+        title="Toggle tab layout"
+        aria-label="Toggle tab layout"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="13"
+          height="13"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      </button>
+    </nav>
+    <div class="main-col">
+      <!-- include: partials/toolbar.html -->
+      <main class="stage" id="stage" tabindex="0">
+        <div class="frame" id="frame">
+          <img id="screen" alt="" draggable="false" />
+          <div class="placeholder" id="placeholder">Waiting for first frame…</div>
+          <!-- include: partials/inactive-overlay.html -->
+        </div>
+        <!-- include: partials/find-bar.html -->
+        <!-- include: partials/statusbar.html -->
+      </main>
+    </div>
+    <div id="sidebar-resize" class="sidebar-resize" aria-hidden="true"></div>
     <div id="toast" class="toast" hidden></div>
-    <main class="stage" id="stage" tabindex="0">
-      <div class="frame" id="frame">
-        <img id="screen" alt="" draggable="false" />
-        <div class="placeholder" id="placeholder">Waiting for first frame…</div>
-        <!-- include: partials/inactive-overlay.html -->
-      </div>
-      <!-- include: partials/find-bar.html -->
-      <!-- include: partials/statusbar.html -->
-    </main>
     <input
       id="paste-helper"
       class="paste-helper"
