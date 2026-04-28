@@ -39,20 +39,22 @@ body {
   flex-direction: column;
 }
 
-/* The orient-toggle is rendered as a leading child of #tabs (same scroll
-   container as the tab buttons and the trailing "+"), so it scrolls with
-   the tabs in either orientation. Hamburger when collapsed (horizontal
-   strip), × when expanded (vertical sidebar). */
+/* The orient-toggle floats over the top-left of the tab strip so the strip
+   is full-width and tabs scroll behind it. Position-fixed in viewport
+   coords; only present in horizontal mode (hidden in vertical via the
+   body.orient-vertical override below). */
 .orient-toggle {
-  flex: 0 0 auto;
+  position: fixed;
+  top: 5px;
+  left: 4px;
+  z-index: 10;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  margin-left: -6px;
-  margin-bottom: -1px;
-  background: transparent;
+  /* Solid bg so tabs scrolling left underneath are cleanly obscured. */
+  background: var(--bg);
   border: none;
   border-radius: 4px;
   color: var(--fg-dim);
@@ -195,13 +197,11 @@ body.orient-vertical .tab.active {
   pointer-events: none;
 }
 
-/* Suppress the separator at the strip start, on the tab immediately after
-   the active one (the outdent already provides visual separation there),
-   and on the tab right after the orient-toggle (which is the leading item
-   in the strip but isn't itself a tab). */
+/* Suppress the separator at the strip start and on the tab immediately
+   after the active one (the outdent already provides visual separation
+   there). */
 .tab:not(.active):first-child::before,
-.tab.active + .tab::before,
-.orient-toggle + .tab::before {
+.tab.active + .tab::before {
   display: none;
 }
 

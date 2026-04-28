@@ -7,31 +7,30 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <nav id="tabs" class="tabs" aria-label="Tabs">
-      <button
-        id="orient-toggle"
-        class="orient-toggle"
-        type="button"
-        title="Toggle tab layout"
-        aria-label="Toggle tab layout"
+    <button
+      id="orient-toggle"
+      class="orient-toggle"
+      type="button"
+      title="Toggle tab layout"
+      aria-label="Toggle tab layout"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="13"
+        height="13"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
       >
-        <svg
-          viewBox="0 0 24 24"
-          width="13"
-          height="13"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <line x1="3" y1="6" x2="21" y2="6" />
-          <line x1="3" y1="12" x2="21" y2="12" />
-          <line x1="3" y1="18" x2="21" y2="18" />
-        </svg>
-      </button>
-    </nav>
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <line x1="3" y1="12" x2="21" y2="12" />
+        <line x1="3" y1="18" x2="21" y2="18" />
+      </svg>
+    </button>
+    <nav id="tabs" class="tabs" aria-label="Tabs"></nav>
     <div class="main-col">
       <!-- include: partials/toolbar.html -->
       <main class="stage" id="stage" tabindex="0">

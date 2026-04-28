@@ -10,10 +10,6 @@ export interface TabsOptions {
   inactiveRevive: HTMLElement;
   inactiveCancel: HTMLElement;
   send: (action: ClientAction) => string | null;
-  // Optional persistent button rendered as the first child of the tab strip.
-  // Re-prepended on every render so it scrolls with the tabs (the same way
-  // the trailing "+" new-tab button does).
-  leadingButton?: HTMLElement;
 }
 
 export interface TabsController {
@@ -27,7 +23,7 @@ export interface TabsController {
 }
 
 export function setupTabs(opts: TabsOptions): TabsController {
-  const { tabsEl, inactiveOverlay, inactiveRevive, inactiveCancel, send, leadingButton } = opts;
+  const { tabsEl, inactiveOverlay, inactiveRevive, inactiveCancel, send } = opts;
   let lastTabs: TabInfo[] = [];
   let isVisible = true;
 
@@ -47,7 +43,6 @@ export function setupTabs(opts: TabsOptions): TabsController {
 
   function render() {
     tabsEl.replaceChildren();
-    if (leadingButton) tabsEl.appendChild(leadingButton);
     for (const tab of lastTabs) {
       const el = document.createElement("button");
       el.type = "button";

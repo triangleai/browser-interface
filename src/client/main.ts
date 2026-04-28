@@ -191,7 +191,6 @@ const tabs = setupTabs({
   inactiveRevive: els.inactiveRevive,
   inactiveCancel: els.inactiveCancel,
   send: bridge.send,
-  leadingButton: els.orientToggle,
 });
 const toolbar = setupToolbar({
   back: els.back,
@@ -224,6 +223,11 @@ const SIDEBAR_MAX = 480;
 // horizontal strip. Acts as a "close by drag" affordance — drag the handle
 // far enough left and the sidebar hides itself.
 const SIDEBAR_CLOSE_AT = 80;
+// Width applied when opening the sidebar if the persisted width is too
+// narrow to be useful (e.g., last drag landed at the minimum). Keeps
+// customized larger widths intact.
+const SIDEBAR_OPEN_DEFAULT = 240;
+const SIDEBAR_OPEN_FLOOR = 180;
 
 type Orient = "horizontal" | "vertical";
 function applyOrient(o: Orient) {
@@ -246,6 +250,17 @@ els.orientToggle.addEventListener("click", () => {
     : "vertical";
   applyOrient(next);
   localStorage.setItem(ORIENT_KEY, next);
+  // Bump sub-comfortable widths up to a sane default on open — otherwise
+  // a previous drag-to-min release leaves the sidebar reopening tiny.
+  if (next === "vertical") {
+    const cur = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--tab-sidebar-width"),
+    );
+    if (!Number.isFinite(cur) || cur < SIDEBAR_OPEN_FLOOR) {
+      applySidebarWidth(SIDEBAR_OPEN_DEFAULT);
+      localStorage.setItem(SIDEBAR_KEY, String(SIDEBAR_OPEN_DEFAULT));
+    }
+  }
   fitFrame();
 });
 
