@@ -39,6 +39,11 @@ export interface BrowserSessionOptions {
   // Drop frames between captures: 1 = every frame (default), 2 = every 2nd, etc.
   // Useful to throttle bandwidth on remote / slow links.
   everyNthFrame?: number;
+  // Cap emitted frames per second. Frames arriving faster than 1/maxFps after
+  // the last emit are dropped (Chrome is still acked so the stream keeps
+  // flowing — we just don't re-broadcast the in-between frames). 0 or
+  // undefined disables the cap.
+  maxFps?: number;
   // Deprecated: pre-screencast polling interval. Honored as a hint to compute
   // everyNthFrame if `everyNthFrame` itself isn't set.
   screenshotIntervalMs?: number;
@@ -409,6 +414,10 @@ export class BrowserSession extends EventEmitter {
   private sessionId: string | null = null;
   private targetId: string | null = null;
   private frameCount = 0;
+  // Monotonic timestamp (ms) of the last frame we emitted to listeners. Used
+  // by the maxFps cap to gate emission; 0 means "no frame emitted yet" so the
+  // first frame always passes.
+  private lastFrameEmittedAt = 0;
   private screencasting = false;
   private viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
   private lastPage: PageStateMessage = { type: "page", url: "", title: "", loading: false };
@@ -721,10 +730,23 @@ export class BrowserSession extends EventEmitter {
           };
           sessionId: number;
         };
-        // We must ack every frame or Chrome stops sending them.
+        // We must ack every frame or Chrome stops sending them. Ack happens
+        // even for frames we drop below — keeping the stream alive so the
+        // *next* frame arrives in time for the cap window to elapse.
         void this.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(
           () => {},
         );
+        // FPS cap: drop frames that arrive faster than 1/maxFps after the
+        // previous emit. A fast-updating page (e.g. 60 Hz canvas) would
+        // otherwise spam every consumer with frames the user can't perceive,
+        // burning CPU on JSON.stringify of a multi-hundred-KB base64 payload.
+        const maxFps = this.opts.maxFps;
+        if (maxFps && maxFps > 0) {
+          const minIntervalMs = 1000 / maxFps;
+          const now = Date.now();
+          if (now - this.lastFrameEmittedAt < minIntervalMs) return;
+          this.lastFrameEmittedAt = now;
+        }
         const w = params.metadata.deviceWidth ?? this.viewport.width;
         const h = params.metadata.deviceHeight ?? this.viewport.height;
         if (w !== this.viewport.width || h !== this.viewport.height) {

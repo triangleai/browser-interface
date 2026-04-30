@@ -149,7 +149,21 @@ export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandl
     }
   };
 
-  session.on("screenshot", broadcast);
+  // Per-client backpressure for screencast frames: if a client's outgoing
+  // socket buffer hasn't drained the previous frame yet, drop the new one
+  // for that client. A typical JPEG frame is ~80–250 KB after base64+JSON,
+  // so 256 KB ≈ "one frame still in flight" — at that point queueing more
+  // just grows latency. Other event types (page state, hover, tabs, etc.)
+  // are tiny and always go through.
+  const FRAME_BACKPRESSURE_BYTES = 256 * 1024;
+  session.on("screenshot", (msg) => {
+    const payload = JSON.stringify(msg);
+    for (const ws of clients) {
+      if (ws.readyState !== ws.OPEN) continue;
+      if (ws.bufferedAmount > FRAME_BACKPRESSURE_BYTES) continue;
+      ws.send(payload);
+    }
+  });
   session.on("page", broadcast);
   session.on("tabs", broadcast);
   session.on("visibility", broadcast);
