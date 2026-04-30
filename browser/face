@@ -13,18 +13,32 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Rebuild if dist/ is missing or any source file is newer than the
+# build outputs. Uses two sentinels (server CLI + client bundle) to
+# catch source changes on either side.
+needs_build() {
+  [[ -f dist/server/cli.js && -f dist/client/main.js ]] || return 0
+  local sentinel=dist/server/cli.js
+  [[ dist/client/main.js -ot dist/server/cli.js ]] && sentinel=dist/client/main.js
+  [[ -n "$(find src scripts tsconfig.server.json tsconfig.client.json package.json \
+            -newer "$sentinel" -print -quit 2>/dev/null)" ]]
+}
+
+ensure_built() {
+  [[ -d node_modules ]] || npm install
+  if needs_build; then npm run build; fi
+}
+
 # No args, or first arg is a flag → bridge with auto-discovery.
 if [[ $# -eq 0 || "${1:0:1}" == "-" ]]; then
-  [[ -d node_modules ]] || npm install
-  [[ -d dist ]] || npm run build
+  ensure_built
   exec npm start -- "$@"
 fi
 
 cmd="$1"; shift
 case "$cmd" in
   start)
-    [[ -d node_modules ]] || npm install
-    [[ -d dist ]] || npm run build
+    ensure_built
     exec npm start -- "$@"
     ;;
   dev)
