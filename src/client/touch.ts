@@ -30,20 +30,33 @@ export interface TouchOptions {
   // i.e. `viewport.width / frame.clientWidth`. Used to scale finger-drag
   // deltas into remote-pixel scroll deltas.
   getRemoteToLocalScale: () => number;
-  // Called after a tap to (re-)focus the paste helper, but only when the
-  // remote currently has an editable field focused. Skipping unconditional
-  // focus avoids popping the OS keyboard on every tap into non-editable
-  // page content, which iOS otherwise treats as a real input focus.
-  // Mobile users can still long-press the screencast image to use iOS's
-  // native text selection, which doesn't go through the paste helper.
-  focusPasteHelperIfFieldFocused: () => void;
+  // Whether the latest hover message from the server reported an
+  // editable target at the tracked position. We dispatch a mousemove on
+  // touchstart so the server's hover poll runs at the tap coords; this
+  // getter returns the result inside the touchend handler, giving the
+  // tap a synchronous predictor of "did the user tap into a field?".
+  getLastCursorEditable: () => boolean;
+  // Called from inside the tap's touchend handler so a focus call lands
+  // gesture-bound (iOS only pops the OS keyboard when focus happens
+  // synchronously inside a user gesture; a focus from a WebSocket
+  // onmessage callback fired ~100ms later is silently rejected for
+  // keyboard purposes). Receives a synchronous prediction of whether
+  // the tap landed on an editable target (input, textarea, or
+  // contenteditable) so the caller can decide whether to focus.
+  focusPasteHelperOnTap: (predictedEditable: boolean) => void;
 }
 
 const TAP_THRESHOLD_PX = 10;
 
 export function setupTouch(opts: TouchOptions): void {
-  const { frame, send, pointToViewport, getRemoteToLocalScale, focusPasteHelperIfFieldFocused } =
-    opts;
+  const {
+    frame,
+    send,
+    pointToViewport,
+    getRemoteToLocalScale,
+    getLastCursorEditable,
+    focusPasteHelperOnTap,
+  } = opts;
 
   let activeId: number | null = null;
   let startX = 0;
@@ -75,6 +88,17 @@ export function setupTouch(opts: TouchOptions): void {
       startX = lastX = t.clientX;
       startY = lastY = t.clientY;
       scrolling = false;
+      // Probe the cursor at the tap location so the touchend handler has
+      // a chance to know whether the tap landed on an editable target.
+      // Mobile doesn't fire mousemove on its own — without this dispatch
+      // the server's hover poll would never run and lastCursorEditable
+      // would stay at its default. The probe runs in parallel with the
+      // user's finger-hold, giving the server ~80–300ms of touch time
+      // to round-trip a hover message before touchend fires. Best case
+      // the result lands in time and the next tap on a field pops the
+      // OS keyboard inside the gesture; worst case the user taps twice.
+      const { x, y } = pointToViewport(t);
+      send({ type: "mousemove", x, y, buttons: [] });
     },
     { passive: true },
   );
@@ -131,18 +155,17 @@ export function setupTouch(opts: TouchOptions): void {
     }
     if (!scrolling) {
       // Tap — fire press + release at the start coords so the remote sees
-      // a real click. The paste helper only re-focuses if the remote is
-      // already on an editable field; that path covers tapping the same
-      // input twice. The first-tap-on-a-field path is handled by the
-      // selection message handler in main.ts: when the click focuses an
-      // input on the remote, the server emits a selection message with
-      // `field`, and main.ts focuses the helper inside the transient
-      // user-activation window iOS leaves open after the tap so the
-      // keyboard still pops.
+      // a real click. Then ask the host to focus the paste helper inside
+      // this gesture if the tap landed on an editable target. iOS only
+      // pops the OS keyboard for focus calls that happen synchronously
+      // inside a user gesture; a focus from a WebSocket onmessage
+      // callback ~100ms later is silently rejected for keyboard
+      // purposes. The `predictedEditable` boolean is set from the
+      // touchstart-dispatched hover probe.
       const { x, y } = pointToViewport({ clientX: startX, clientY: startY });
       send({ type: "mousedown", x, y, button: "left", clickCount: 1 });
       send({ type: "mouseup", x, y, button: "left", clickCount: 1 });
-      focusPasteHelperIfFieldFocused();
+      focusPasteHelperOnTap(getLastCursorEditable());
     }
     scrolling = false;
   });

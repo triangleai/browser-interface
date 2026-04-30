@@ -56,6 +56,14 @@ let activeTabId: string | null = null;
 // on coarse-pointer devices we only want the OS keyboard up when there's
 // somewhere to type, not on every tap.
 let remoteHasField = false;
+// Whether the remote's tracked mouse position is currently over an
+// editable target — text-type input, textarea, or contenteditable.
+// Updated from `hover` messages. The touch handler reads this on
+// touchend to decide whether to focus the paste helper inside the
+// gesture, popping the OS keyboard for editable targets only. Distinct
+// from `cursor === 'text'` because plain page text glyphs also produce
+// the I-beam cursor without being editable.
+let lastCursorEditable = false;
 const isCoarsePointer =
   typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
@@ -154,6 +162,7 @@ function handleServerMessage(msg: ServerMessage) {
       // Mirror the remote's cursor on the screencast frame so hovering a
       // link shows pointer, an input shows the I-beam, etc.
       els.frame.style.cursor = msg.cursor || "default";
+      lastCursorEditable = !!msg.editable;
       return;
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
@@ -561,8 +570,15 @@ setupTouch({
     const local = els.frame.clientWidth;
     return local > 0 ? viewport.width / local : 1;
   },
-  focusPasteHelperIfFieldFocused: () => {
-    if (remoteHasField) pasteHelper.focus();
+  getLastCursorEditable: () => lastCursorEditable,
+  focusPasteHelperOnTap: (predictedEditable) => {
+    // Focus the helper inside the touch gesture when we believe the
+    // tap landed on an editable target — either the cursor predictor
+    // says so (touchstart-dispatched hover probe came back in time) or
+    // the remote already has a field focused (tapping the same input
+    // again). Anything else: don't focus, so the keyboard doesn't pop
+    // for taps on plain text or images.
+    if (predictedEditable || remoteHasField) pasteHelper.focus();
   },
 });
 

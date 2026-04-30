@@ -449,6 +449,10 @@ export class BrowserSession extends EventEmitter {
   private hoverPending = false;
   private lastHoveredHref: string | null = null;
   private lastCursor: string = "default";
+  // Whether the last hover landed on an editable target (input, textarea,
+  // contenteditable). Mirrored to the client so the touch handler can
+  // decide synchronously whether a tap should pop the OS keyboard.
+  private lastHoveredEditable: boolean = false;
   // Cached Browser.getWindowForTarget result for the attached tab. Looked up
   // lazily on first setViewport, then reused for subsequent resize ticks so a
   // drag doesn't re-roundtrip per move. Cleared on tab switch.
@@ -829,31 +833,43 @@ export class BrowserSession extends EventEmitter {
     const y = this.lastMouseY;
     try {
       const evalRes = (await withTimeout(
-        this.send<{ result: { value?: { href: string | null; cursor: string } } }>(
+        this.send<{
+          result: { value?: { href: string | null; cursor: string; editable?: boolean } };
+        }>(
           "Runtime.evaluate",
           {
             // elementFromPoint returns the topmost element at the coords. We
-            // collect two pieces of info: the nearest anchor's href (for the
-            // status-bar hover URL) and an effective cursor — first by
+            // collect three pieces of info: the nearest anchor's href (for
+            // the status-bar hover URL), an effective cursor — first by
             // walking ancestors looking for a non-`auto` computed cursor,
             // then by inferring from the element's role for common cases
-            // (links, inputs/textareas, contenteditable). getComputedStyle
-            // returns `auto` rather than the resolved cursor for the default
-            // case, so we handle the resolution ourselves.
+            // (links, inputs/textareas, contenteditable) — and an
+            // `editable` flag that's true only when the hover is over an
+            // input/textarea/contenteditable target. The flag is distinct
+            // from `cursor === 'text'` because plain page text *also*
+            // produces an I-beam cursor (when the point is inside a glyph
+            // rect), and the client needs to tell the two cases apart for
+            // decisions like whether a tap should pop the OS keyboard.
             expression: `(()=>{
               const el = document.elementFromPoint(${x}, ${y});
-              if (!el) return { href: null, cursor: 'default' };
+              if (!el) return { href: null, cursor: 'default', editable: false };
               let cursor = 'auto';
+              let editable = false;
               for (let cur = el; cur && cur !== document.documentElement; cur = cur.parentElement) {
                 const cs = window.getComputedStyle(cur);
                 if (cs.cursor && cs.cursor !== 'auto') { cursor = cs.cursor; break; }
               }
               if (cursor === 'auto') {
                 if (el.closest('a[href]')) cursor = 'pointer';
-                else if (el.closest('textarea, [contenteditable=true], [contenteditable=""]')) cursor = 'text';
+                else if (el.closest('textarea, [contenteditable=true], [contenteditable=""]')) {
+                  cursor = 'text';
+                  editable = true;
+                }
                 else if (el.closest('input')) {
                   const t = (el.closest('input').getAttribute('type') || 'text').toLowerCase();
-                  cursor = (t === 'text' || t === 'search' || t === 'email' || t === 'url' || t === 'tel' || t === 'password' || t === 'number') ? 'text' : 'default';
+                  const isTextInput = (t === 'text' || t === 'search' || t === 'email' || t === 'url' || t === 'tel' || t === 'password' || t === 'number');
+                  cursor = isTextInput ? 'text' : 'default';
+                  editable = isTextInput;
                 } else {
                   // Plain page text — show the I-beam only when the point is
                   // actually inside a glyph rect, not just somewhere over a
@@ -895,21 +911,29 @@ export class BrowserSession extends EventEmitter {
                 }
               }
               const a = el.closest('a');
-              return { href: (a && a.href) || null, cursor };
+              return { href: (a && a.href) || null, cursor, editable };
             })()`,
             returnByValue: true,
           },
         ),
         500,
-      )) as { result?: { value?: { href: string | null; cursor: string } } } | null;
+      )) as {
+        result?: { value?: { href: string | null; cursor: string; editable?: boolean } };
+      } | null;
       const v = evalRes?.result?.value;
       if (!v) return;
       const href = v.href;
       const cursor = v.cursor || "default";
-      if (href !== this.lastHoveredHref || cursor !== this.lastCursor) {
+      const editable = !!v.editable;
+      if (
+        href !== this.lastHoveredHref ||
+        cursor !== this.lastCursor ||
+        editable !== this.lastHoveredEditable
+      ) {
         this.lastHoveredHref = href;
         this.lastCursor = cursor;
-        this.emit("hover", { type: "hover", href, cursor });
+        this.lastHoveredEditable = editable;
+        this.emit("hover", { type: "hover", href, cursor, editable });
       }
     } catch {
       // ignore — CDP can be momentarily busy mid-navigation
@@ -969,10 +993,15 @@ export class BrowserSession extends EventEmitter {
       this.hoverTimer = null;
     }
     this.hoverPending = false;
-    if (this.lastHoveredHref !== null || this.lastCursor !== "default") {
+    if (
+      this.lastHoveredHref !== null ||
+      this.lastCursor !== "default" ||
+      this.lastHoveredEditable
+    ) {
       this.lastHoveredHref = null;
       this.lastCursor = "default";
-      this.emit("hover", { type: "hover", href: null, cursor: "default" });
+      this.lastHoveredEditable = false;
+      this.emit("hover", { type: "hover", href: null, cursor: "default", editable: false });
     }
   }
 
