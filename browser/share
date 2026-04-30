@@ -7,8 +7,12 @@
 #
 # HTTP tunnel only — /ws needs the upgrade. CDP stays bound to localhost;
 # only the bridge port is exposed. The bridge has no auth of its own, so
-# always front it with --oauth, --basic-auth, or --cidr-allow — whoever
-# loads the URL drives your browser.
+# you must front it with one of --oauth, --oidc, --cidr-allow,
+# --mutual-tls-cas, or --traffic-policy-file. (Note: ngrok's --basic-auth
+# does not work well with browserface — the WebSocket reconnect retriggers
+# the prompt repeatedly — so it's not accepted here.) To run without auth,
+# pass --auth-disabled explicitly. Whoever loads the URL drives your
+# browser.
 set -euo pipefail
 
 if ! command -v ngrok >/dev/null 2>&1; then
@@ -16,9 +20,40 @@ if ! command -v ngrok >/dev/null 2>&1; then
   exit 1
 fi
 
-# No args, or first arg is a flag → forward port 8787 with the flags.
-if [[ $# -eq 0 || "${1:0:1}" == "-" ]]; then
-  exec ngrok http 8787 "$@"
+# Strip our own --auth-disabled flag before forwarding to ngrok.
+auth_disabled=0
+ngrok_args=()
+for arg in "$@"; do
+  if [[ "$arg" == "--auth-disabled" ]]; then
+    auth_disabled=1
+  else
+    ngrok_args+=("$arg")
+  fi
+done
+
+# ngrok has no single "require auth" switch; these are the flags that
+# gate access. --basic-auth is intentionally excluded (see header).
+has_auth=0
+for arg in "${ngrok_args[@]+"${ngrok_args[@]}"}"; do
+  case "$arg" in
+    --oauth|--oauth=*|--oidc|--oidc=*|--cidr-allow|--cidr-allow=*|\
+    --mutual-tls-cas|--mutual-tls-cas=*|\
+    --traffic-policy-file|--traffic-policy-file=*)
+      has_auth=1; break
+      ;;
+  esac
+done
+
+if [[ $has_auth -eq 0 && $auth_disabled -eq 0 ]]; then
+  echo "ERROR: no auth flag detected. Anyone with the URL can drive your browser." >&2
+  echo "  Add --oauth, --oidc, --cidr-allow, --mutual-tls-cas, or --traffic-policy-file." >&2
+  echo "  Or pass --auth-disabled to run without auth." >&2
+  exit 1
 fi
 
-exec ngrok "$@"
+# No args, or first positional is a flag → forward port 8787 with the flags.
+if [[ ${#ngrok_args[@]} -eq 0 || "${ngrok_args[0]:0:1}" == "-" ]]; then
+  exec ngrok http 8787 "${ngrok_args[@]+"${ngrok_args[@]}"}"
+fi
+
+exec ngrok "${ngrok_args[@]}"
