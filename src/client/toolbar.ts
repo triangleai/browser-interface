@@ -22,10 +22,26 @@ export interface ToolbarController {
   setUrl: (url: string) => void;
 }
 
-function normalizeUrl(raw: string): string {
+// Decide whether the URL bar's contents should navigate (real URL) or fall
+// back to a Google search (looks like a query). Mirrors what real browsers
+// do — "github.com" navigates, "best pizza" searches. Returns "" for empty
+// input. Heuristic:
+//   - Has explicit scheme like https://, file://, about:, chrome://, mailto:
+//     → pass through unchanged.
+//   - Otherwise it has to be a single whitespace-free token that looks
+//     host-shaped: contains a "." (so "github.com", "192.168.1.1") or is
+//     "localhost" / "localhost:port".
+//   - Anything else (multiple words, no dot, etc.) → Google search.
+function buildNavigationTarget(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
-  return /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  if (/^(about|mailto|tel|chrome|view-source):/i.test(trimmed)) return trimmed;
+  const isHostShaped =
+    !/\s/.test(trimmed) &&
+    (trimmed.includes(".") || /^localhost(:\d+)?(\/|$)/i.test(trimmed));
+  if (isHostShaped) return `https://${trimmed}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 
 export function setupToolbar(opts: ToolbarOptions): ToolbarController {
@@ -46,7 +62,7 @@ export function setupToolbar(opts: ToolbarOptions): ToolbarController {
 
   urlForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const target = normalizeUrl(url.value);
+    const target = buildNavigationTarget(url.value);
     if (!target) return;
     send({ type: "navigate", url: target });
     url.blur();
@@ -56,7 +72,7 @@ export function setupToolbar(opts: ToolbarOptions): ToolbarController {
   // in (Safari, the user's daily Chrome, etc.) — distinct from "navigate",
   // which sends the URL into the bridged Chrome session.
   openExternal.addEventListener("click", () => {
-    const target = normalizeUrl(url.value);
+    const target = buildNavigationTarget(url.value);
     if (!target) return;
     window.open(target, "_blank", "noopener,noreferrer");
   });
