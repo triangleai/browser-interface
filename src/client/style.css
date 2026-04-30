@@ -917,6 +917,14 @@ body.resizing {
     width: 20px;
     height: 20px;
   }
+
+  /* Push the preset cluster to the right edge of the status bar by giving
+     the leftmost button (the desktop-aspect one) auto margin on the left.
+     The trailing mobile button rides along since it's adjacent in the
+     flex flow. Order: ...status pill, [auto gap], desktop, mobile. */
+  #vp-preset-desktop-narrow {
+    margin-left: auto;
+  }
 }
 
 /* ── Coarse pointer (phone, tablet, touchscreen kiosk) ──────────────────────
