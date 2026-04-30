@@ -13,18 +13,24 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Always rebuild before starting. tsc (incremental) + esbuild are both
+# near-instant when nothing changed, so this is cheaper than a stale-
+# build footgun.
+ensure_built() {
+  [[ -d node_modules ]] || npm install
+  npm run build
+}
+
 # No args, or first arg is a flag → bridge with auto-discovery.
 if [[ $# -eq 0 || "${1:0:1}" == "-" ]]; then
-  [[ -d node_modules ]] || npm install
-  [[ -d dist ]] || npm run build
+  ensure_built
   exec npm start -- "$@"
 fi
 
 cmd="$1"; shift
 case "$cmd" in
   start)
-    [[ -d node_modules ]] || npm install
-    [[ -d dist ]] || npm run build
+    ensure_built
     exec npm start -- "$@"
     ;;
   dev)

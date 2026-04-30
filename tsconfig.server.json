@@ -15,6 +15,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "incremental": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false
   },
