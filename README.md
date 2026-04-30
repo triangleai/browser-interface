@@ -62,6 +62,9 @@ npm start -- --host 127.0.0.1 --port 9222
 # Or a specific WS URL (page-level or browser-level):
 npm start -- --target ws://127.0.0.1:9222/devtools/browser/<id>
 
+# Print connection commands for an already-running Chrome:
+npm run find-chrome
+
 # Headless Chrome for testing:
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --remote-debugging-port=9222 --headless=new --no-first-run \
@@ -84,6 +87,22 @@ npm start -- --port 9222
 | `--interval <ms>` | Screenshot interval (default `500`) |
 | `--format <png\|jpeg>` | Screenshot format (default `jpeg`) |
 | `--quality <0-100>` | JPEG quality (default `60`) |
+
+### Finding Chrome targets
+
+`npm run find-chrome` reads Chrome's `DevToolsActivePort` file and prints
+ready-to-run commands for connecting Browser Interface to that Chrome. Run it
+on the machine where Chrome is running.
+
+For a local Chrome:
+
+```sh
+npm run find-chrome
+```
+
+For a Chrome running on another machine, run the same command on that machine.
+The output includes a direct `npm start -- --target ...` command and an SSH
+tunnel workflow using `ssh -N -L`.
 
 ## Develop
 
