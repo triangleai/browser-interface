@@ -83,7 +83,11 @@ body {
    that pushes the rest of the bridge UI rightward. On mobile (handled in
    the @media (max-width: 700px) block far below) vertical mode means
    something different — a separate overlay sidebar — so these rules are
-   scoped to ≥701px. */
+   scoped to ≥701px.
+
+   MOBILE-BP-CSS: the 700/701px breakpoint here mirrors `MOBILE_BP` in
+   main.ts. Media queries can't read CSS variables, so the value is
+   duplicated. Keep both sides in sync. */
 @media (min-width: 701px) {
   body.orient-vertical {
     flex-direction: row;

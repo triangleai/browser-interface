@@ -249,10 +249,13 @@ const SIDEBAR_CLOSE_AT = 60;
 const SIDEBAR_OPEN_DEFAULT = 240;
 const SIDEBAR_OPEN_FLOOR = 180;
 
-// Mirrors the @media (max-width: 700px) breakpoint in style.css. Below this
-// width, vertical mode shows an overlay sidebar (and the horizontal strip
-// stays visible); above, vertical mode morphs the strip into a left-side
-// sidebar that pushes layout (the desktop behavior).
+// Single source of truth (TS side) for the narrow-viewport breakpoint —
+// used here for runtime decisions (close-sidebar-on-tap-outside scoping,
+// match-size area calculation). The CSS half lives in style.css as
+// `@media (max-width: 700px)` / `@media (min-width: 701px)` and has to
+// be kept in sync manually: media queries can't read CSS variables, so
+// neither side can compute from the other. If you change one, change
+// the other (search for "MOBILE_BP" / "MOBILE-BP-CSS").
 const MOBILE_BP = 701;
 type Orient = "horizontal" | "vertical";
 function applyOrient(o: Orient) {
@@ -546,13 +549,12 @@ setupTouch({
 //     screen without big letterboxing. Trade-off on a phone: tall content
 //     area, more scrolling than a real desktop window.
 const DESKTOP_PRESET_WIDTH = 1280;
-const MATCH_SIZE_FRAME_BREAKPOINT = 701;
 function matchSizeArea(): { w: number; h: number } {
   // Below the narrow breakpoint, prefer the visual viewport (or innerWidth/
   // innerHeight). Mobile-designed pages expect to render at the phone's
   // actual screen dims; using the smaller frame area would silently shrink
   // them and the visual viewport handles iOS URL-bar collapse for free.
-  if (window.innerWidth < MATCH_SIZE_FRAME_BREAKPOINT) {
+  if (window.innerWidth < MOBILE_BP) {
     const vv = window.visualViewport;
     return {
       w: Math.max(1, Math.round(vv?.width ?? window.innerWidth)),
