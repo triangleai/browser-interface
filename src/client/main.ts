@@ -509,27 +509,33 @@ setupTouch({
 // Two one-tap shortcuts that ship `setViewport`:
 //
 //   - Match size (always visible — replaces the old drag handle): remote =
-//     (innerWidth, innerHeight). Resizes the remote browser window so its
-//     content area matches the bridge UI's window. On a phone the page
-//     sees a phone-sized viewport and renders mobile layouts; on desktop
-//     it lines up the remote with the local window.
+//     the frame's available area (stage minus the in-stage status bar).
+//     This is what fitFrame uses, so after the next screencast frame the
+//     remote fills the frame box at 1:1 with no letterboxing.
 //
 //   - Desktop size (narrow screens only): remote = (1280, 1280 ×
-//     localAspect). Wide enough that responsive sites pick the desktop
-//     layout, kept at the local window's aspect so the screencast still
-//     fills the screen without big letterboxing. Trade-off on a phone:
-//     tall content area, more scrolling than a real desktop window.
+//     frameAspect). Wide enough that responsive sites pick the desktop
+//     layout, kept at the frame's aspect so the screencast still fills
+//     the screen without big letterboxing. Trade-off on a phone: tall
+//     content area, more scrolling than a real desktop window.
 const DESKTOP_PRESET_WIDTH = 1280;
+function frameAvailableArea(): { w: number; h: number } {
+  // Tab strip and toolbar live outside the stage, so stage.clientWidth /
+  // clientHeight already excludes them. The status bar lives *inside* the
+  // stage so its height has to be subtracted explicitly. Mirrors fitFrame.
+  const statusbar = document.querySelector(".statusbar") as HTMLElement | null;
+  const statusH = statusbar ? statusbar.offsetHeight : 0;
+  return {
+    w: Math.max(1, els.stage.clientWidth),
+    h: Math.max(1, els.stage.clientHeight - statusH),
+  };
+}
 els.vpMatchSize.addEventListener("click", () => {
-  bridge.send({
-    type: "setViewport",
-    width: window.innerWidth,
-    height: window.innerHeight,
-  });
+  const { w, h } = frameAvailableArea();
+  bridge.send({ type: "setViewport", width: w, height: h });
 });
 els.vpDesktopSize.addEventListener("click", () => {
-  const w = window.innerWidth || 1;
-  const h = window.innerHeight || 1;
+  const { w, h } = frameAvailableArea();
   bridge.send({
     type: "setViewport",
     width: DESKTOP_PRESET_WIDTH,
