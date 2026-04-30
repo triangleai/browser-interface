@@ -2,7 +2,6 @@ import type { ModifierKey, MouseButton, ServerMessage } from "../shared/protocol
 import { createBridge } from "./bridge.js";
 import { setupFindBar } from "./find-bar.js";
 import { setupPasteHelper } from "./paste-helper.js";
-import { setupResize } from "./resize.js";
 import { setupStatusBar } from "./statusbar.js";
 import { setupTabs } from "./tabs.js";
 import { setupToolbar } from "./toolbar.js";
@@ -35,8 +34,6 @@ const els = {
   inactiveRevive: document.getElementById("inactive-revive") as HTMLButtonElement,
   inactiveCancel: document.getElementById("inactive-cancel") as HTMLButtonElement,
   toast: document.getElementById("toast") as HTMLDivElement,
-  resizeHandle: document.getElementById("resize-handle") as HTMLButtonElement,
-  resizeReadout: document.getElementById("resize-readout") as HTMLDivElement,
   pasteHelper: document.getElementById("paste-helper") as HTMLInputElement,
   findBar: document.getElementById("find-bar") as HTMLDivElement,
   findInput: document.getElementById("find-input") as HTMLInputElement,
@@ -46,8 +43,8 @@ const els = {
   findClose: document.getElementById("find-close") as HTMLButtonElement,
   orientToggle: document.getElementById("orient-toggle") as HTMLButtonElement,
   sidebarResize: document.getElementById("sidebar-resize") as HTMLDivElement,
-  vpPresetMobile: document.getElementById("vp-preset-mobile") as HTMLButtonElement,
-  vpPresetDesktopNarrow: document.getElementById("vp-preset-desktop-narrow") as HTMLButtonElement,
+  vpMatchSize: document.getElementById("vp-match-size") as HTMLButtonElement,
+  vpDesktopSize: document.getElementById("vp-desktop-size") as HTMLButtonElement,
 };
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
@@ -159,10 +156,8 @@ function handleServerMessage(msg: ServerMessage) {
     case "error":
       console.warn("[bridge] server error:", msg.message);
       showToast(msg.message);
-      if (msg.id !== undefined) resize.notifyResolved(msg.id);
       return;
     case "ack":
-      if (msg.id !== undefined) resize.notifyResolved(msg.id);
       return;
   }
 }
@@ -183,13 +178,6 @@ const pasteHelper = setupPasteHelper({
   send: bridge.send,
   isUrlBarFocused: () => document.activeElement === els.url,
   debug: true,
-});
-const resize = setupResize({
-  handle: els.resizeHandle,
-  readout: els.resizeReadout,
-  frame: els.frame,
-  getViewport: () => viewport,
-  send: bridge.send,
 });
 const tabs = setupTabs({
   tabsEl: els.tabs,
@@ -516,32 +504,30 @@ setupTouch({
   focusPasteHelper: () => pasteHelper.focus(),
 });
 
-// ── Viewport preset buttons (narrow screens) ─────────────────────────────────
+// ── Viewport size buttons ────────────────────────────────────────────────────
 //
-// Two one-tap shortcuts for resizing the *remote* browser window — exposed
-// via CSS only at narrow widths (the same buttons would be redundant with
-// the resize-handle drag on a desktop). Both ship a `setViewport` action,
-// same code path the resize handle uses.
+// Two one-tap shortcuts that ship `setViewport`:
 //
-//   - Phone preset: remote = (window.innerWidth, window.innerHeight). The
-//     remote page sees a viewport equal to the user's phone screen, so
-//     responsive sites pick their mobile layout. The screencast frame
-//     renders ~1:1 in the bridge UI.
+//   - Match size (always visible — replaces the old drag handle): remote =
+//     (innerWidth, innerHeight). Resizes the remote browser window so its
+//     content area matches the bridge UI's window. On a phone the page
+//     sees a phone-sized viewport and renders mobile layouts; on desktop
+//     it lines up the remote with the local window.
 //
-//   - Desktop-aspect-mobile preset: remote = (1280, 1280 × phoneAspect).
-//     Wide enough that responsive sites pick the desktop layout, but kept
-//     at the phone's portrait aspect so the screencast frame still fills
-//     the user's screen without big letterboxing. Trade-off: very tall
-//     content area, more scrolling than a real desktop window.
+//   - Desktop size (narrow screens only): remote = (1280, 1280 ×
+//     localAspect). Wide enough that responsive sites pick the desktop
+//     layout, kept at the local window's aspect so the screencast still
+//     fills the screen without big letterboxing. Trade-off on a phone:
+//     tall content area, more scrolling than a real desktop window.
 const DESKTOP_PRESET_WIDTH = 1280;
-els.vpPresetMobile.addEventListener("click", () => {
+els.vpMatchSize.addEventListener("click", () => {
   bridge.send({
     type: "setViewport",
     width: window.innerWidth,
     height: window.innerHeight,
   });
 });
-els.vpPresetDesktopNarrow.addEventListener("click", () => {
+els.vpDesktopSize.addEventListener("click", () => {
   const w = window.innerWidth || 1;
   const h = window.innerHeight || 1;
   bridge.send({

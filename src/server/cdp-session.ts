@@ -1060,7 +1060,7 @@ export class BrowserSession extends EventEmitter {
     this.targetId = targetId;
     // Different tabs can live in different OS windows (split Chrome window
     // setups), so invalidate the cached windowId and chrome-bar measurements.
-    // Re-fetched on the next resize-handle drag.
+    // Re-fetched on the next setViewport.
     this.windowId = null;
     this.chromeBarWidthDiff = null;
     this.chromeBarHeightDiff = null;

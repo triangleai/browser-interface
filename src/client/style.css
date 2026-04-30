@@ -536,14 +536,13 @@ body.orient-vertical .tab.active {
   display: block;
   width: 100%;
   height: 100%;
-  /* Preserve the screencast frame's natural aspect ratio. Normally the frame
-     box and the image agree (fitFrame sizes the box to the remote viewport),
-     so this is a no-op. During a resize-handle drag the frame box follows
-     the cursor immediately while the screencast image lags by a tick or two
-     at the previous aspect — without `contain`, the image would visibly
-     squish/stretch until the next frame arrives. With `contain`, it stays
-     correctly proportioned and letterboxes against the .frame's black
-     background instead. */
+  /* Preserve the screencast frame's natural aspect ratio. Normally the
+     frame box and the image agree (fitFrame sizes the box to the remote
+     viewport), but between dispatching a setViewport and the first frame
+     at the new dims, the box can be one aspect and the lingering image
+     another. Without `contain`, that brief window would visibly squish or
+     stretch the image; with it, the image letterboxes against the .frame's
+     black background until the next frame arrives. */
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
@@ -812,69 +811,12 @@ body.dragging-sidebar .toolbar {
   pointer-events: none;
 }
 
-/* Subtle resize affordance in the status bar's right edge — two opposing
-   diagonal arrows (up-left, down-right), drawn in the same stroke style as
-   the toolbar's back/forward icons. Doesn't overlap the page content. */
-.resize-handle {
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg-dim);
-  cursor: nwse-resize;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.55;
-  transition: opacity 120ms ease, color 120ms ease;
-}
-
-.resize-handle svg {
-  display: block;
-}
-
-.resize-handle:hover,
-body.resizing .resize-handle {
-  opacity: 1;
-  color: var(--fg);
-}
-
-body.resizing {
-  /* Keep the resize cursor while the user drags off the 16px handle box. */
-  cursor: nwse-resize;
-}
-
-/* Floating "1280 × 800" readout shown just above the resize handle while
-   dragging. Anchored to the status bar's right edge. */
-.resize-readout {
-  position: absolute;
-  right: 8px;
-  bottom: calc(100% + 4px);
-  background: rgba(14, 16, 20, 0.92);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font: 11px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-variant-numeric: tabular-nums;
-  padding: 3px 6px;
-  border-radius: 4px;
-  pointer-events: none;
-  z-index: 6;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-.resize-readout[hidden] {
-  display: none;
-}
-
-/* Viewport preset buttons (phone size / desktop width at phone aspect). Only
-   shown at narrow widths via the media query below — they'd be redundant
-   with the resize-handle drag at desktop sizes. Visual style mirrors the
-   resize handle so the right edge of the status bar reads as one cluster. */
+/* Viewport size buttons in the status bar's right edge. Match-size is
+   always visible (replaces the old drag-resize handle); desktop-size only
+   shows on narrow screens, where the trade-off it makes (tall content for
+   desktop layout) actually buys you something. */
 .vp-preset {
-  display: none;
+  display: inline-flex;
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
@@ -904,9 +846,20 @@ body.resizing {
   display: block;
 }
 
+/* Push the match-size button (and any trailing siblings) to the right edge
+   of the status bar. On wide screens it's the only preset visible, so this
+   gives it the right edge alone; on narrow screens the desktop-size button
+   shows up to its left and shifts the auto margin (rules below). */
+#vp-match-size {
+  margin-left: auto;
+}
+
+#vp-desktop-size {
+  display: none;
+}
+
 @media (max-width: 700px) {
   .vp-preset {
-    display: inline-flex;
     /* Tap-target sized — Apple HIG min is 44×44, we get close enough at 40
        without ballooning the status bar's right edge past the screencast. */
     width: 40px;
@@ -918,12 +871,16 @@ body.resizing {
     height: 20px;
   }
 
-  /* Push the preset cluster to the right edge of the status bar by giving
-     the leftmost button (the desktop-aspect one) auto margin on the left.
-     The trailing mobile button rides along since it's adjacent in the
-     flex flow. Order: ...status pill, [auto gap], desktop, mobile. */
-  #vp-preset-desktop-narrow {
+  /* Show desktop-size and move the auto margin to it so the cluster pushes
+     right as a pair. Final order: ...status pill, [auto gap], desktop,
+     match — match button on the far right where the thumb naturally lands. */
+  #vp-desktop-size {
+    display: inline-flex;
     margin-left: auto;
+  }
+
+  #vp-match-size {
+    margin-left: 0;
   }
 }
 
@@ -937,7 +894,6 @@ body.resizing {
 @media (pointer: coarse) {
   .orient-toggle,
   .sidebar-resize,
-  .resize-handle,
   .cdp-endpoint,
   .fps,
   .hover-link,
