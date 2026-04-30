@@ -10,6 +10,7 @@ interface CliArgs {
   width?: number;
   height?: number;
   intervalMs?: number;
+  maxFps?: number;
   format?: "png" | "jpeg";
   quality?: number;
   noAutoDiscover?: boolean;
@@ -47,6 +48,9 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--interval":
         out.intervalMs = Number(next());
+        break;
+      case "--max-fps":
+        out.maxFps = Number(next());
         break;
       case "--format": {
         const v = next();
@@ -96,6 +100,7 @@ Viewport / capture:
   --width <px>             Override viewport width (Emulation.setDeviceMetricsOverride)
   --height <px>            Override viewport height
   --interval <ms>          Screenshot interval (default 500)
+  --max-fps <n>            Cap emitted frames/sec (default 30; 0 disables)
   --format <png|jpeg>      Screenshot format (default jpeg)
   --quality <0-100>        JPEG quality (default 60)
 `);
@@ -110,6 +115,11 @@ async function main() {
   if (args.listenHost) opts.listenHost = args.listenHost;
   if (args.listenPort) opts.listenPort = args.listenPort;
   if (args.intervalMs) opts.screenshotIntervalMs = args.intervalMs;
+  // Cap emitted frame rate by default. A 60 Hz updating page (canvas, video,
+  // many SPAs) would otherwise spam every connected client with frames the
+  // user can't perceive — 30 fps is plenty smooth. Pass --max-fps 0 to
+  // disable. Pass --max-fps <n> to override.
+  opts.maxFps = args.maxFps !== undefined ? args.maxFps : 30;
   if (args.format) opts.screenshotFormat = args.format;
   if (args.quality !== undefined) opts.screenshotQuality = args.quality;
   if (args.width && args.height) {
