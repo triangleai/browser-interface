@@ -9,7 +9,6 @@ interface CliArgs {
   listenPort?: number;
   width?: number;
   height?: number;
-  intervalMs?: number;
   maxFps?: number;
   format?: "png" | "jpeg";
   quality?: number;
@@ -45,9 +44,6 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--height":
         out.height = Number(next());
-        break;
-      case "--interval":
-        out.intervalMs = Number(next());
         break;
       case "--max-fps":
         out.maxFps = Number(next());
@@ -99,7 +95,6 @@ Server:
 Viewport / capture:
   --width <px>             Override viewport width (Emulation.setDeviceMetricsOverride)
   --height <px>            Override viewport height
-  --interval <ms>          Screenshot interval (default 500)
   --max-fps <n>            Cap emitted frames/sec (default 30; 0 disables)
   --format <png|jpeg>      Screenshot format (default jpeg)
   --quality <0-100>        JPEG quality (default 60)
@@ -114,7 +109,6 @@ async function main() {
   if (args.port) opts.port = args.port;
   if (args.listenHost) opts.listenHost = args.listenHost;
   if (args.listenPort) opts.listenPort = args.listenPort;
-  if (args.intervalMs) opts.screenshotIntervalMs = args.intervalMs;
   // Cap emitted frame rate by default. A 60 Hz updating page (canvas, video,
   // many SPAs) would otherwise spam every connected client with frames the
   // user can't perceive — 30 fps is plenty smooth. Pass --max-fps 0 to

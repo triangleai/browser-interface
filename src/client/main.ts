@@ -173,11 +173,6 @@ function handleServerMessage(msg: ServerMessage) {
       els.frame.style.cursor = msg.cursor || "default";
       lastCursorEditable = !!msg.editable;
       probeInFlight = false;
-      console.log("[probe] hover-received", {
-        cursor: msg.cursor,
-        editable: !!msg.editable,
-        href: msg.href,
-      });
       return;
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
@@ -227,7 +222,6 @@ const pasteHelper = setupPasteHelper({
   el: els.pasteHelper,
   send: bridge.send,
   isUrlBarFocused: () => document.activeElement === els.url,
-  debug: true,
 });
 // Re-anchor focus on the paste helper after another input gives it up
 // (URL bar, find bar). On coarse pointers we suppress the call when the
@@ -476,11 +470,6 @@ window.addEventListener("load", () => {
 // selection edges. Outside a drag, mousemove is throttled (hover-only).
 let dragging = false;
 
-function mouseDbg(event: string, fields?: Record<string, unknown>) {
-  if (fields) console.log(`[mouse] ${event}`, fields);
-  else console.log(`[mouse] ${event}`);
-}
-
 function mouseButtonName(button: number): MouseButton {
   if (button === 2) return "right";
   if (button === 1) return "middle";
@@ -498,13 +487,12 @@ function mouseButtonsFromBits(bits: number): MouseButton[] {
 mouseTarget.addEventListener("mousedown", (e) => {
   e.preventDefault();
   refocusPasteHelper();
-  mouseDbg("mousedown-event", { button: e.button, isVisible, detail: e.detail });
   if (!isVisible) {
     bridge.send({ type: "refocus" });
     return;
   }
   const { x, y } = pointToViewport(e);
-  const id = bridge.send({
+  bridge.send({
     type: "mousedown",
     x,
     y,
@@ -513,20 +501,16 @@ mouseTarget.addEventListener("mousedown", (e) => {
     modifiers: modifiersFromEvent(e),
   });
   dragging = true;
-  mouseDbg("mousedown-sent", { id, x, y, button: e.button });
 });
 
 // Listen on window so a release outside the frame (user dragged off the edge
 // while text-selecting) still finalizes the gesture on the page side.
 window.addEventListener("mouseup", (e) => {
-  if (!dragging) {
-    mouseDbg("mouseup-skip-not-dragging", { button: e.button });
-    return;
-  }
+  if (!dragging) return;
   dragging = false;
   if (!isVisible) return;
   const { x, y } = pointToViewport(e);
-  const id = bridge.send({
+  bridge.send({
     type: "mouseup",
     x,
     y,
@@ -534,11 +518,9 @@ window.addEventListener("mouseup", (e) => {
     clickCount: e.detail || 1,
     modifiers: modifiersFromEvent(e),
   });
-  mouseDbg("mouseup-sent", { id, x, y, button: e.button });
 });
 
 let lastMoveAt = 0;
-let moveCounter = 0;
 function dispatchMouseMove(e: MouseEvent) {
   if (!isVisible) return;
   const { x, y } = pointToViewport(e);
@@ -550,11 +532,6 @@ function dispatchMouseMove(e: MouseEvent) {
     buttons,
     modifiers: modifiersFromEvent(e),
   });
-  // Sample log so the console isn't drowned during a fast drag.
-  moveCounter++;
-  if (moveCounter % 10 === 1) {
-    mouseDbg("mousemove-sample", { x, y, buttons, dragging, count: moveCounter });
-  }
 }
 
 mouseTarget.addEventListener("mousemove", (e) => {

@@ -1,12 +1,15 @@
 import CDP from "chrome-remote-interface";
 import { EventEmitter } from "node:events";
 import type {
+  ClickAction,
   ClientAction,
   FindResultMessage,
   HoverMessage,
   InactiveTabMessage,
   ModifierKey,
   MouseButton,
+  MouseDownAction,
+  MouseUpAction,
   PageStateMessage,
   ScreenshotMessage,
   SelectionMessage,
@@ -15,6 +18,9 @@ import type {
   VisibilityMessage,
 } from "../shared/protocol.js";
 import { keyDescriptorFor } from "./keymap.js";
+import { buildFindScript, FIND_STOP_SCRIPT } from "./page-scripts/find.js";
+import { buildHoverProbe } from "./page-scripts/hover.js";
+import { SELECTION_PROBE } from "./page-scripts/selection.js";
 
 export interface BrowserSessionOptions {
   // Either pass a full ws:// URL (browser- or page-level), or host/port. If
@@ -44,9 +50,6 @@ export interface BrowserSessionOptions {
   // flowing — we just don't re-broadcast the in-between frames). 0 or
   // undefined disables the cap.
   maxFps?: number;
-  // Deprecated: pre-screencast polling interval. Honored as a hint to compute
-  // everyNthFrame if `everyNthFrame` itself isn't set.
-  screenshotIntervalMs?: number;
   // Optional viewport override applied via Emulation.setDeviceMetricsOverride.
   viewport?: { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean };
 }
@@ -77,172 +80,6 @@ function selectionPayloadEqual(a: SelectionPayload, b: SelectionPayload): boolea
   );
 }
 
-// Runs in the page's main world. Returns the current selection text, plus:
-//   - `field` (value + caret range) when the focused element is an
-//     <input>/<textarea> — drives the desktop helper's value mirror.
-//   - `editable` (boolean) for any editable focus, including
-//     contenteditable elements that don't fit the field model. Drives
-//     mobile OS-keyboard pop on the client (it focuses the paste helper
-//     when an editable target is focused, regardless of whether we have
-//     a usable value/selection mirror for it).
-// JSON-encoded so we can ship a structured value through Runtime.evaluate's
-// returnByValue without dealing with object-graph serialization.
-const SELECTION_PROBE = `JSON.stringify((() => {
-  const ae = document.activeElement;
-  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
-    const v = ae.value || '';
-    const s = ae.selectionStart || 0;
-    const e = ae.selectionEnd || 0;
-    return {
-      text: v.slice(s, e),
-      field: { value: v, selectionStart: s, selectionEnd: e },
-      editable: true,
-    };
-  }
-  const sel = document.getSelection();
-  const text = sel ? sel.toString() : '';
-  // isContentEditable returns true for contenteditable subtrees,
-  // including inherited contenteditable="true" from an ancestor.
-  const editable = !!(ae && ae.isContentEditable);
-  return editable ? { text, editable: true } : { text };
-})())`;
-
-// Builds an in-page expression for find-on-page. Walks visible text once per
-// query change to collect a Range list, paints all matches via the CSS
-// Custom Highlight API (yellow), highlights the current match on top
-// (orange), and advances the current index on subsequent calls without
-// re-walking. Returns { current, total } so the bar can show "X of Y".
-function findOnPageScript(query: string, backward: boolean, fromStart: boolean): string {
-  return `(() => {
-    const query = ${JSON.stringify(query)};
-    const backward = ${backward};
-    const fromStart = ${fromStart};
-    function ensureStyle() {
-      if (document.getElementById('__bridge-find-style')) return;
-      const st = document.createElement('style');
-      st.id = '__bridge-find-style';
-      st.textContent =
-        '::highlight(bridge-find-all) { background-color: #ffd33d; color: #000; }' +
-        '::highlight(bridge-find-current) { background-color: #ff8c1a; color: #000; }';
-      document.head.appendChild(st);
-    }
-    function clearHighlights() {
-      if (typeof CSS !== 'undefined' && CSS.highlights) {
-        CSS.highlights.delete('bridge-find-all');
-        CSS.highlights.delete('bridge-find-current');
-      }
-    }
-    if (!query) {
-      clearHighlights();
-      delete window.__bridgeFind;
-      return { current: 0, total: 0 };
-    }
-    let state = window.__bridgeFind;
-    const needsRefresh = !state || state.query !== query || fromStart;
-    if (needsRefresh) {
-      // Walk visible text nodes (descending into open shadow roots) and
-      // build a flat string with index→node mapping, then collect Range
-      // objects for every occurrence of the query.
-      const nodes = [];
-      const parts = [];
-      let total = 0;
-      function visit(node) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const v = node.nodeValue || '';
-          if (!v) return;
-          const parent = node.parentElement;
-          if (parent) {
-            const tag = parent.tagName;
-            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return;
-            const cs = window.getComputedStyle(parent);
-            if (cs.display === 'none' || cs.visibility === 'hidden') return;
-          }
-          nodes.push({ node, start: total });
-          parts.push(v);
-          total += v.length;
-          return;
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const tag = node.tagName;
-          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return;
-          const cs = window.getComputedStyle(node);
-          if (cs.display === 'none' || cs.visibility === 'hidden') return;
-          if (node.shadowRoot) visit(node.shadowRoot);
-        }
-        for (let c = node.firstChild; c; c = c.nextSibling) visit(c);
-      }
-      visit(document.body);
-      const flat = parts.join('').toLowerCase();
-      const q = query.toLowerCase();
-      function locate(pos) {
-        let lo = 0, hi = nodes.length - 1;
-        while (lo < hi) {
-          const mid = (lo + hi + 1) >> 1;
-          if (nodes[mid].start <= pos) lo = mid;
-          else hi = mid - 1;
-        }
-        return { node: nodes[lo].node, offset: pos - nodes[lo].start };
-      }
-      const ranges = [];
-      let pos = 0;
-      while (q && (pos = flat.indexOf(q, pos)) !== -1) {
-        const a = locate(pos);
-        const b = locate(pos + q.length);
-        const r = document.createRange();
-        try { r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset); ranges.push(r); } catch (_) {}
-        pos += q.length;
-      }
-      state = { query, ranges, current: -1 };
-      window.__bridgeFind = state;
-    }
-    if (state.ranges.length === 0) {
-      clearHighlights();
-      return { current: 0, total: 0 };
-    }
-    if (state.current === -1) {
-      state.current = 0;
-    } else {
-      const step = backward ? -1 : 1;
-      state.current = (state.current + step + state.ranges.length) % state.ranges.length;
-    }
-    ensureStyle();
-    if (typeof Highlight !== 'undefined' && CSS.highlights) {
-      CSS.highlights.set('bridge-find-all', new Highlight(...state.ranges));
-      CSS.highlights.set('bridge-find-current', new Highlight(state.ranges[state.current]));
-    }
-    const cur = state.ranges[state.current];
-    const rect = cur.getBoundingClientRect();
-    if (rect.top < 0 || rect.bottom > window.innerHeight || rect.left < 0 || rect.right > window.innerWidth) {
-      const target = cur.startContainer.parentElement || document.body;
-      target.scrollIntoView({ block: 'center', inline: 'nearest' });
-    }
-    return { current: state.current + 1, total: state.ranges.length };
-  })()`;
-}
-
-// Tears down the visible find state on close: removes highlights and the
-// injected stylesheet, and promotes the active match to a regular text
-// selection (Chrome's behavior — leaves matched text selected for Cmd-C).
-// We deliberately keep window.__bridgeFind in place so a later Cmd-G can
-// resume from the same query and position rather than re-walking from the
-// top.
-const FIND_STOP_SCRIPT = `(() => {
-  const state = window.__bridgeFind;
-  if (state && state.current >= 0 && state.ranges && state.ranges[state.current]) {
-    const sel = window.getSelection();
-    if (sel) {
-      sel.removeAllRanges();
-      try { sel.addRange(state.ranges[state.current]); } catch (_) {}
-    }
-  }
-  if (typeof CSS !== 'undefined' && CSS.highlights) {
-    CSS.highlights.delete('bridge-find-all');
-    CSS.highlights.delete('bridge-find-current');
-  }
-  const st = document.getElementById('__bridge-find-style');
-  if (st) st.remove();
-})()`;
-
 const MODIFIER_BITS: Record<ModifierKey, number> = {
   Alt: 1,
   Control: 2,
@@ -253,6 +90,15 @@ const MODIFIER_BITS: Record<ModifierKey, number> = {
 function modifierMask(mods?: ModifierKey[]): number {
   if (!mods) return 0;
   return mods.reduce((acc, m) => acc | MODIFIER_BITS[m], 0);
+}
+
+// CDP's `buttons` bitmask: 1 = primary (left), 2 = secondary (right),
+// 4 = auxiliary (middle). Used both for a single pressed button and to
+// build a held-buttons bitmask via `|`.
+function buttonBit(button: MouseButton): number {
+  if (button === "left") return 1;
+  if (button === "right") return 2;
+  return 4;
 }
 
 // Map a (key, modifiers) pair to Chromium editor commands. CDP exposes a
@@ -513,13 +359,7 @@ export class BrowserSession extends EventEmitter {
 
     // Enable the domains we care about on the page session. Best-effort —
     // a couple of these can fail on edge-case targets and we keep going.
-    for (const domain of ["Page", "DOM", "Runtime", "Network"]) {
-      try {
-        await this.send(`${domain}.enable`, {});
-      } catch (err) {
-        console.warn(`[browserface] enable ${domain} failed:`, err);
-      }
-    }
+    await this.enablePageDomains();
 
     if (this.opts.viewport) {
       await this.send("Emulation.setDeviceMetricsOverride", {
@@ -635,6 +475,41 @@ export class BrowserSession extends EventEmitter {
   private async send<T = unknown>(method: string, params: unknown = {}): Promise<T> {
     if (!this.client || !this.sessionId) throw new Error("session not connected");
     return (await rawSend(this.client, method, params, this.sessionId)) as T;
+  }
+
+  // Shared press/release dispatch for click, mousedown, and mouseup. CDP
+  // expects the held-buttons bitmask to be set on press and zeroed on release;
+  // everything else (button, coords, modifiers, clickCount) flows straight
+  // through from the action.
+  private dispatchMouseButton(
+    action: ClickAction | MouseDownAction | MouseUpAction,
+    type: "mousePressed" | "mouseReleased",
+  ): Promise<unknown> {
+    const button = action.button ?? "left";
+    return this.send("Input.dispatchMouseEvent", {
+      type,
+      x: action.x,
+      y: action.y,
+      button,
+      buttons: type === "mousePressed" ? buttonBit(button) : 0,
+      clickCount: action.clickCount ?? 1,
+      modifiers: modifierMask(action.modifiers),
+    });
+  }
+
+  // Best-effort enable of the CDP domains we read from. Failures on edge-case
+  // targets shouldn't abort the connect/switch; they just get logged. With a
+  // timeout, hangs on a wedged renderer also surface as warnings rather than
+  // freezing the bridge.
+  private async enablePageDomains(timeoutMs?: number): Promise<void> {
+    for (const domain of ["Page", "DOM", "Runtime", "Network"]) {
+      try {
+        const p = this.send(`${domain}.enable`, {});
+        await (timeoutMs !== undefined ? withTimeout(p, timeoutMs) : p);
+      } catch (err) {
+        console.warn(`[browserface] enable ${domain} failed:`, err);
+      }
+    }
   }
 
   private handleEvent(ev: CdpEvent) {
@@ -835,106 +710,10 @@ export class BrowserSession extends EventEmitter {
       const evalRes = (await withTimeout(
         this.send<{
           result: { value?: { href: string | null; cursor: string; editable?: boolean } };
-        }>(
-          "Runtime.evaluate",
-          {
-            // elementFromPoint returns the topmost element at the coords. We
-            // collect three pieces of info: the nearest anchor's href (for
-            // the status-bar hover URL), an effective cursor — first by
-            // walking ancestors looking for a non-`auto` computed cursor,
-            // then by inferring from the element's role for common cases
-            // (links, inputs/textareas, contenteditable) — and an
-            // `editable` flag that's true only when the hover is over an
-            // input/textarea/contenteditable target. The flag is distinct
-            // from `cursor === 'text'` because plain page text *also*
-            // produces an I-beam cursor (when the point is inside a glyph
-            // rect), and the client needs to tell the two cases apart for
-            // decisions like whether a tap should pop the OS keyboard.
-            expression: `(()=>{
-              const x = ${x}, y = ${y};
-              const stack = document.elementsFromPoint(x, y);
-              const top = stack[0];
-              if (!top) return { href: null, cursor: 'default', editable: false };
-              const TEXT_INPUT_TYPES = ['text','search','email','url','tel','password','number'];
-              function isEditableEl(e) {
-                if (!e) return false;
-                if (e.tagName === 'TEXTAREA') return true;
-                if (e.tagName === 'INPUT') {
-                  const t = (e.getAttribute('type') || 'text').toLowerCase();
-                  return TEXT_INPUT_TYPES.indexOf(t) !== -1;
-                }
-                if (e.isContentEditable) return true;
-                // ARIA roles that ride on plain divs to act as text inputs —
-                // ProseMirror / Lexical editors, custom searchboxes, etc.
-                const role = e.getAttribute && e.getAttribute('role');
-                if (role === 'textbox' || role === 'searchbox' || role === 'combobox') return true;
-                return false;
-              }
-              // Walk the stacked hit-list, not just the topmost element.
-              // elementsFromPoint includes everything that geometrically
-              // contains the point — the input, its wrapper div, body,
-              // html — so a tap inside an input that's wrapped by a
-              // styled container (icon + input flex row, etc.) still
-              // finds the input even when the wrapper is the literal
-              // pointer target.
-              let editable = false;
-              for (let i = 0; i < stack.length; i++) {
-                if (isEditableEl(stack[i])) { editable = true; break; }
-              }
-              let cursor = 'auto';
-              for (let cur = top; cur && cur !== document.documentElement; cur = cur.parentElement) {
-                const cs = window.getComputedStyle(cur);
-                if (cs.cursor && cs.cursor !== 'auto') { cursor = cs.cursor; break; }
-              }
-              if (cursor === 'auto') {
-                if (top.closest('a[href]')) cursor = 'pointer';
-                else if (editable) cursor = 'text';
-                else {
-                  // Plain page text — show the I-beam only when the point is
-                  // actually inside a glyph rect, not just somewhere over a
-                  // text-containing element. Browsers do roughly this: hover
-                  // over the word → I-beam; hover the line gap, paragraph
-                  // margin, or trailing whitespace beyond the line → default.
-                  // We get the nearest caret position, build a 1-char range
-                  // adjacent to it, and check whether the point is inside any
-                  // of its client rects.
-                  let isText = false;
-                  try {
-                    const cp = document.caretPositionFromPoint
-                      ? document.caretPositionFromPoint(${x}, ${y})
-                      : (document.caretRangeFromPoint && document.caretRangeFromPoint(${x}, ${y}));
-                    const node = cp && (cp.offsetNode || cp.startContainer);
-                    const offset = cp ? (cp.offset !== undefined ? cp.offset : (cp.startOffset || 0)) : 0;
-                    if (node && node.nodeType === 3) {
-                      const text = node.nodeValue || '';
-                      const p = node.parentElement;
-                      const us = p ? (window.getComputedStyle(p).userSelect || window.getComputedStyle(p).webkitUserSelect) : '';
-                      if (us !== 'none') {
-                        const r = document.createRange();
-                        const inRects = (s, e) => {
-                          if (s < 0 || e > text.length || s >= e) return false;
-                          r.setStart(node, s);
-                          r.setEnd(node, e);
-                          const rs = r.getClientRects();
-                          for (let i = 0; i < rs.length; i++) {
-                            const rr = rs[i];
-                            if (${x} >= rr.left && ${x} <= rr.right && ${y} >= rr.top && ${y} <= rr.bottom) return true;
-                          }
-                          return false;
-                        };
-                        if (inRects(offset, offset + 1) || inRects(offset - 1, offset)) isText = true;
-                      }
-                    }
-                  } catch (_) {}
-                  cursor = isText ? 'text' : 'default';
-                }
-              }
-              const a = top.closest('a');
-              return { href: (a && a.href) || null, cursor, editable };
-            })()`,
-            returnByValue: true,
-          },
-        ),
+        }>("Runtime.evaluate", {
+          expression: buildHoverProbe(x, y),
+          returnByValue: true,
+        }),
         500,
       )) as {
         result?: { value?: { href: string | null; cursor: string; editable?: boolean } };
@@ -1133,13 +912,7 @@ export class BrowserSession extends EventEmitter {
     // come back within a short window the page is probably wedged, but we
     // still want to update the UI (so the user sees the tab switch happened)
     // and let the inactive-tab detection downstream handle the recovery flow.
-    for (const domain of ["Page", "DOM", "Runtime", "Network"]) {
-      try {
-        await withTimeout(this.send(`${domain}.enable`), DOMAIN_TIMEOUT_MS);
-      } catch (err) {
-        console.warn(`[browserface] enable ${domain} failed:`, err);
-      }
-    }
+    await this.enablePageDomains(DOMAIN_TIMEOUT_MS);
 
     if (!this.visible) {
       this.visible = true;
@@ -1254,11 +1027,6 @@ export class BrowserSession extends EventEmitter {
     if (this.opts.everyNthFrame && this.opts.everyNthFrame > 0) {
       return Math.floor(this.opts.everyNthFrame);
     }
-    if (this.opts.screenshotIntervalMs && this.opts.screenshotIntervalMs > 16) {
-      // Screencast emits at the page's refresh rate (~60fps). Approximate the
-      // legacy interval by skipping frames.
-      return Math.max(1, Math.round(this.opts.screenshotIntervalMs / 16));
-    }
     return 1;
   }
 
@@ -1283,72 +1051,27 @@ export class BrowserSession extends EventEmitter {
     if (!this.client) throw new Error("session not connected");
 
     switch (action.type) {
-      case "click": {
-        const button = action.button ?? "left";
-        const modifiers = modifierMask(action.modifiers);
-        const clickCount = action.clickCount ?? 1;
-        await this.send("Input.dispatchMouseEvent", {
-          type: "mousePressed",
-          x: action.x,
-          y: action.y,
-          button,
-          buttons: button === "left" ? 1 : button === "right" ? 2 : 4,
-          clickCount,
-          modifiers,
-        });
-        await this.send("Input.dispatchMouseEvent", {
-          type: "mouseReleased",
-          x: action.x,
-          y: action.y,
-          button,
-          buttons: 0,
-          clickCount,
-          modifiers,
-        });
+      case "click":
+        await this.dispatchMouseButton(action, "mousePressed");
+        await this.dispatchMouseButton(action, "mouseReleased");
         // A click can change DOM selection (caret repositioned, anchor links,
         // shift-click range extension, etc.). Refresh the cached selection so
         // the human's next Cmd-C has up-to-date text in clipboardData.
         this.scheduleSelectionPoll();
         return;
-      }
-      case "mousedown": {
-        const button = action.button ?? "left";
-        await this.send("Input.dispatchMouseEvent", {
-          type: "mousePressed",
-          x: action.x,
-          y: action.y,
-          button,
-          buttons: button === "left" ? 1 : button === "right" ? 2 : 4,
-          clickCount: action.clickCount ?? 1,
-          modifiers: modifierMask(action.modifiers),
-        });
+      case "mousedown":
+        await this.dispatchMouseButton(action, "mousePressed");
         // No selection poll on press — selection isn't finalized until the
         // matching mouseup. A drag-select extends through mousemoves and
         // settles on release; polling here would fire mid-gesture.
         return;
-      }
-      case "mouseup": {
-        const button = action.button ?? "left";
-        await this.send("Input.dispatchMouseEvent", {
-          type: "mouseReleased",
-          x: action.x,
-          y: action.y,
-          button,
-          buttons: 0,
-          clickCount: action.clickCount ?? 1,
-          modifiers: modifierMask(action.modifiers),
-        });
+      case "mouseup":
+        await this.dispatchMouseButton(action, "mouseReleased");
         this.scheduleSelectionPoll();
         return;
-      }
       case "mousemove": {
         const buttonsHeld = action.buttons ?? [];
-        const buttons = buttonsHeld.reduce((acc, b) => {
-          if (b === "left") return acc | 1;
-          if (b === "right") return acc | 2;
-          if (b === "middle") return acc | 4;
-          return acc;
-        }, 0);
+        const buttons = buttonsHeld.reduce((acc, b) => acc | buttonBit(b), 0);
         // CDP treats a mouseMoved with `button: "none"` (the default) as a
         // hover. To extend a drag-select on the page side we have to name
         // the button that's currently held — without this Chrome sees a
@@ -1400,13 +1123,6 @@ export class BrowserSession extends EventEmitter {
         // also execute the named editing command after the synthesized event,
         // which is what makes Cmd-A actually select all (and similar) work.
         const commands = editorCommandsFor(action.key, action.modifiers);
-        console.log("[browserface] key", {
-          phase: action.phase,
-          key: action.key,
-          code: action.code,
-          modifiers: action.modifiers,
-          commands,
-        });
         const downEvent: Record<string, unknown> = {
           type: "keyDown",
           modifiers,
@@ -1491,7 +1207,7 @@ export class BrowserSession extends EventEmitter {
         if (!query) return;
         const backward = action.direction === "prev";
         const fromStart = !!action.fromStart;
-        const expr = findOnPageScript(query, backward, fromStart);
+        const expr = buildFindScript(query, backward, fromStart);
         const res = await this.send<{ result?: { value?: { current?: number; total?: number } } }>(
           "Runtime.evaluate",
           { expression: expr, returnByValue: true },

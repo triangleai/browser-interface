@@ -5,34 +5,29 @@ export type MouseButton = "left" | "middle" | "right";
 
 export type ModifierKey = "Alt" | "Control" | "Meta" | "Shift";
 
-export interface ClickAction {
-  type: "click";
+// Shared shape for press/release/atomic-click actions. Each concrete action
+// adds only its discriminator on top.
+interface MouseButtonActionBase {
   x: number;
   y: number;
   button?: MouseButton;
   clickCount?: number;
   modifiers?: ModifierKey[];
+}
+
+export interface ClickAction extends MouseButtonActionBase {
+  type: "click";
 }
 
 // Distinct press / release for gestures whose start and end coordinates
 // differ — text drag-select, drag-and-drop, etc. The unified ClickAction is
 // still available for callers that just want an atomic click at a point.
-export interface MouseDownAction {
+export interface MouseDownAction extends MouseButtonActionBase {
   type: "mousedown";
-  x: number;
-  y: number;
-  button?: MouseButton;
-  clickCount?: number;
-  modifiers?: ModifierKey[];
 }
 
-export interface MouseUpAction {
+export interface MouseUpAction extends MouseButtonActionBase {
   type: "mouseup";
-  x: number;
-  y: number;
-  button?: MouseButton;
-  clickCount?: number;
-  modifiers?: ModifierKey[];
 }
 
 export interface MouseMoveAction {

@@ -802,14 +802,12 @@ body.out-of-focus .frame {
   display: none;
 }
 
-/* DEBUG-VISIBLE paste helper. Mirrors the remote DOM's selection (padded with
-   spaces) so native Cmd-C copies the right text. Floats over the bottom-right
-   corner during development so we can watch the clipboard plumbing live —
-   once it's stable this element will go back to being visually-hidden. */
-/* Visually hidden but still focusable / selectable — the clipboard pipeline
-   relies on this <input> being the active Cocoa responder for Cmd-C/V/A,
-   but the user shouldn't see it. clip + 1×1 size keeps it out of layout
-   and out of view while leaving focus and selection mechanics intact. */
+/* Paste helper: hidden but focusable. The clipboard pipeline relies on this
+   <input> being the active Cocoa responder for Cmd-C/V/A, but the user
+   shouldn't see it. clip + 1×1 size keeps it out of layout and out of view
+   while leaving focus and selection mechanics intact. The coarse-pointer
+   media block below drops the clip so iOS/Android will pop the OS keyboard
+   on focus (clipped 0×0 inputs are ignored for keyboard purposes). */
 .paste-helper {
   position: fixed;
   bottom: 0;

@@ -215,16 +215,3 @@ export async function discoverChrome(opts: DiscoverOptions = {}): Promise<DevToo
     "If chrome://inspect didn't open automatically, open it manually, tick 'Discover network targets', and click 'Allow'.",
   );
 }
-
-// Quick check whether /json/version (the HTTP CDP discovery endpoint) is reachable.
-// Newer Chrome builds sometimes 404 it; the caller can fall back to the browser ws URL.
-export async function jsonVersionWorks(host: string, port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://${host}:${port}/json/version`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}

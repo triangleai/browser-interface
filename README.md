@@ -84,7 +84,7 @@ npm start -- --port 9222
 | `--listen-host <host>` | UI bind host (default `127.0.0.1`) |
 | `--listen-port, -l <port>` | UI bind port (default `8787`) |
 | `--width <px>` `--height <px>` | Override viewport via `Emulation.setDeviceMetricsOverride` |
-| `--interval <ms>` | Screenshot interval (default `500`) |
+| `--max-fps <n>` | Cap emitted frames per second (default `30`; `0` disables) |
 | `--format <png\|jpeg>` | Screenshot format (default `jpeg`) |
 | `--quality <0-100>` | JPEG quality (default `60`) |
 
