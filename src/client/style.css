@@ -78,66 +78,77 @@ body {
   min-width: 0;
 }
 
-/* ── Vertical orientation: tabs become a left sidebar ───────────────────── */
-body.orient-vertical {
-  flex-direction: row;
-  /* In horizontal mode the tab strip's bottom edge provides the page's top
-     visual frame. Once tabs move to a sidebar, the toolbar would float
-     against the window edge — add a top border that runs over both the
-     sidebar and the right column to put a frame back. */
-  border-top: 1px solid var(--border);
+/* ── Vertical orientation: desktop layout push ──────────────────────────────
+   On desktop, vertical mode morphs the .tabs strip into a left-side sidebar
+   that pushes the rest of the bridge UI rightward. On mobile (handled in
+   the @media (max-width: 700px) block far below) vertical mode means
+   something different — a separate overlay sidebar — so these rules are
+   scoped to ≥701px. */
+@media (min-width: 701px) {
+  body.orient-vertical {
+    flex-direction: row;
+    /* In horizontal mode the tab strip's bottom edge provides the page's
+       top visual frame. Once tabs move to a sidebar, the toolbar would
+       float against the window edge — add a top border that runs over
+       both the sidebar and the right column to put a frame back. */
+    border-top: 1px solid var(--border);
+  }
+
+  body.orient-vertical .tabs {
+    flex-direction: column;
+    align-items: stretch;
+    width: var(--tab-sidebar-width);
+    flex: 0 0 auto;
+    padding: 8px 8px;
+    gap: 4px;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body.orient-vertical .tabs::after {
+    display: none;
+  }
+
+  body.orient-vertical .tabs .tab {
+    max-width: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+  }
+
+  body.orient-vertical .tabs .tab .title {
+    max-width: none;
+    flex: 1 1 auto;
+    text-align: left;
+  }
+
+  /* Drop the horizontal-only ornaments (vertical separator between
+     inactive tabs, the active tab's curved bottom wings, and the active
+     tab's pulled-down margin) — they only make sense for the strip
+     layout. */
+  body.orient-vertical .tabs .tab:not(.active)::before,
+  body.orient-vertical .tabs .tab.active::before,
+  body.orient-vertical .tabs .tab.active::after {
+    display: none;
+  }
+
+  body.orient-vertical .tabs .tab.active {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 0;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
 }
 
-body.orient-vertical .tabs {
-  flex-direction: column;
-  align-items: stretch;
-  width: var(--tab-sidebar-width);
-  flex: 0 0 auto;
-  padding: 8px 8px;
-  gap: 4px;
-  background: var(--bg);
-  border-right: 1px solid var(--border);
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-body.orient-vertical .tabs::after {
-  display: none;
-}
-
+/* Hide the hamburger toggle whenever the sidebar is open — applies on both
+   desktop (where it'd float over the morphed tabs sidebar) and mobile
+   (where the user dismisses the overlay by tapping outside or a tab). */
 body.orient-vertical .orient-toggle {
   display: none;
-}
-
-body.orient-vertical .tab {
-  max-width: none;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: transparent;
-  text-align: left;
-}
-
-body.orient-vertical .tab .title {
-  max-width: none;
-  flex: 1 1 auto;
-  text-align: left;
-}
-
-/* Drop the horizontal-only ornaments (vertical separator between inactive
-   tabs, the active tab's curved bottom wings, and the active tab's pulled-
-   down margin) — they only make sense for the strip layout. */
-body.orient-vertical .tab:not(.active)::before,
-body.orient-vertical .tab.active::before,
-body.orient-vertical .tab.active::after {
-  display: none;
-}
-
-body.orient-vertical .tab.active {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-bottom: 0;
-  padding-top: 6px;
-  padding-bottom: 6px;
 }
 
 .tabs {
@@ -168,6 +179,62 @@ body.orient-vertical .tab.active {
 
 .tabs:empty {
   display: none;
+}
+
+/* Mobile-only overlay sidebar. Always present in the DOM (tabs.ts renders
+   the same list into both .tabs and .tab-sidebar so the data is in sync),
+   hidden by default. The mobile media query flips it to display: flex
+   when body.orient-vertical is set. On desktop the sidebar role is
+   played by the morphed .tabs element instead, so this stays hidden. */
+.tab-sidebar {
+  display: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--tab-sidebar-width);
+  z-index: 50;
+  padding: 8px 8px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.45);
+}
+
+/* Tab buttons inside the sidebar use the vertical-list look — same shape
+   as the desktop body.orient-vertical .tabs .tab rules, just scoped to
+   the sidebar element so the horizontal strip is unaffected. */
+.tab-sidebar .tab {
+  max-width: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+
+.tab-sidebar .tab .title {
+  max-width: none;
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+/* Drop the strip-only ornaments inside the sidebar context. */
+.tab-sidebar .tab:not(.active)::before,
+.tab-sidebar .tab.active::before,
+.tab-sidebar .tab.active::after {
+  display: none;
+}
+
+.tab-sidebar .tab.active {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
 
 .tab {
@@ -768,16 +835,21 @@ body.out-of-focus .frame {
   display: none;
 }
 
-body.orient-vertical .sidebar-resize {
-  display: block;
-  position: fixed;
-  top: 1px; /* below body's top border */
-  bottom: 0;
-  left: calc(var(--tab-sidebar-width) - 3px);
-  width: 6px;
-  cursor: col-resize;
-  z-index: 30;
-  background: transparent;
+/* Drag handle only matters when the sidebar morphs into a layout-pushing
+   sidebar — on mobile vertical mode the overlay #tab-sidebar isn't
+   resizable, so the handle stays hidden there. */
+@media (min-width: 701px) {
+  body.orient-vertical .sidebar-resize {
+    display: block;
+    position: fixed;
+    top: 1px; /* below body's top border */
+    bottom: 0;
+    left: calc(var(--tab-sidebar-width) - 3px);
+    width: 6px;
+    cursor: col-resize;
+    z-index: 30;
+    background: transparent;
+  }
 }
 
 .sidebar-resize::before {
@@ -883,34 +955,15 @@ body.dragging-sidebar .toolbar {
     margin-left: 0;
   }
 
-  /* Vertical sidebar as an overlay (not a push). On desktop, vertical mode
-     turns the tabs into a left-side sidebar that takes layout width and
-     pushes the rest of the bridge UI rightward. There's not enough screen
-     width on a phone for that to work, so override: keep body in column
-     layout, take the tabs out of the flex flow with position:fixed, and
-     float the sidebar over the page from the left edge. The hamburger
-     stays visible and tappable so the user can dismiss the sidebar the
-     same way they opened it. */
-  body.orient-vertical {
-    flex-direction: column;
-    border-top: none;
-  }
-
-  body.orient-vertical .tabs {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: var(--tab-sidebar-width);
-    z-index: 50;
-    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.45);
-  }
-
-  body.orient-vertical .orient-toggle {
-    /* Override the desktop rule that hides the toggle while the sidebar
-       is open; on mobile the user needs it to close the overlay. */
-    display: inline-flex;
-    z-index: 60;
+  /* Mobile vertical mode: show the separate overlay sidebar (#tab-sidebar)
+     on top of the page, while leaving the horizontal tab strip visible
+     above. Unlike desktop vertical mode, .tabs isn't morphed — both the
+     strip and the sidebar render the same tab list (tabs.ts paints both
+     containers). The hamburger is hidden while the sidebar is open
+     (rule outside the media query); the user dismisses by tapping a
+     tab or tapping outside the sidebar (handled in main.ts). */
+  body.orient-vertical .tab-sidebar {
+    display: flex;
   }
 }
 

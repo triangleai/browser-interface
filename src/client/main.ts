@@ -43,6 +43,7 @@ const els = {
   findClose: document.getElementById("find-close") as HTMLButtonElement,
   orientToggle: document.getElementById("orient-toggle") as HTMLButtonElement,
   sidebarResize: document.getElementById("sidebar-resize") as HTMLDivElement,
+  tabSidebar: document.getElementById("tab-sidebar") as HTMLElement,
   vpMatchSize: document.getElementById("vp-match-size") as HTMLButtonElement,
   vpDesktopSize: document.getElementById("vp-desktop-size") as HTMLButtonElement,
 };
@@ -181,10 +182,15 @@ const pasteHelper = setupPasteHelper({
 });
 const tabs = setupTabs({
   tabsEl: els.tabs,
+  sidebarEl: els.tabSidebar,
   inactiveOverlay: els.inactiveOverlay,
   inactiveRevive: els.inactiveRevive,
   inactiveCancel: els.inactiveCancel,
   send: bridge.send,
+  // After any tab switch / new-tab, dismiss the mobile overlay sidebar so
+  // the user lands back on the page they just selected without an extra
+  // tap to close. No-op on desktop or when the sidebar isn't open.
+  onTabAction: () => closeMobileSidebar(),
 });
 const toolbar = setupToolbar({
   back: els.back,
@@ -243,12 +249,36 @@ const SIDEBAR_CLOSE_AT = 60;
 const SIDEBAR_OPEN_DEFAULT = 240;
 const SIDEBAR_OPEN_FLOOR = 180;
 
+// Mirrors the @media (max-width: 700px) breakpoint in style.css. Below this
+// width, vertical mode shows an overlay sidebar (and the horizontal strip
+// stays visible); above, vertical mode morphs the strip into a left-side
+// sidebar that pushes layout (the desktop behavior).
+const MOBILE_BP = 701;
 type Orient = "horizontal" | "vertical";
 function applyOrient(o: Orient) {
   document.body.classList.toggle("orient-vertical", o === "vertical");
 }
+function closeMobileSidebar() {
+  if (window.innerWidth >= MOBILE_BP) return;
+  if (!document.body.classList.contains("orient-vertical")) return;
+  applyOrient("horizontal");
+  localStorage.setItem(ORIENT_KEY, "horizontal");
+}
 const storedOrient = localStorage.getItem(ORIENT_KEY);
 applyOrient(storedOrient === "vertical" ? "vertical" : "horizontal");
+
+// Tap-outside-to-close for the mobile overlay sidebar. Skipped on desktop
+// (where vertical mode is a layout push, not an overlay) and skipped when
+// the tap lands inside the sidebar or on the hamburger — the sidebar's
+// own button handlers and the toggle button already manage those paths.
+document.addEventListener("click", (e) => {
+  if (window.innerWidth >= MOBILE_BP) return;
+  if (!document.body.classList.contains("orient-vertical")) return;
+  const target = e.target as Node;
+  if (els.tabSidebar.contains(target)) return;
+  if (els.orientToggle.contains(target)) return;
+  closeMobileSidebar();
+});
 
 function applySidebarWidth(px: number) {
   const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(px)));

@@ -4,12 +4,21 @@ import type { ClientAction, TabInfo } from "../shared/protocol.js";
 // because it's logically a per-tab state ("the active tab is discarded —
 // reactivate?") and shares lifecycle with switching tabs (an inactive
 // prompt left over from the previous tab gets cleared on switch).
+//
+// The list is rendered into both `tabsEl` (the always-visible horizontal
+// strip) and an optional `sidebarEl` (the mobile overlay sidebar). Each
+// container gets its own freshly-built buttons so listeners attach
+// correctly — sharing the same DOM nodes across containers isn't
+// possible. `onTabAction` fires after a tab switch / new-tab so the
+// caller can dismiss the mobile sidebar overlay.
 export interface TabsOptions {
   tabsEl: HTMLElement;
+  sidebarEl?: HTMLElement | null;
   inactiveOverlay: HTMLElement;
   inactiveRevive: HTMLElement;
   inactiveCancel: HTMLElement;
   send: (action: ClientAction) => string | null;
+  onTabAction?: () => void;
 }
 
 export interface TabsController {
@@ -23,7 +32,8 @@ export interface TabsController {
 }
 
 export function setupTabs(opts: TabsOptions): TabsController {
-  const { tabsEl, inactiveOverlay, inactiveRevive, inactiveCancel, send } = opts;
+  const { tabsEl, sidebarEl, inactiveOverlay, inactiveRevive, inactiveCancel, send, onTabAction } =
+    opts;
   let lastTabs: TabInfo[] = [];
   let isVisible = true;
 
@@ -41,8 +51,12 @@ export function setupTabs(opts: TabsOptions): TabsController {
   });
   inactiveCancel.addEventListener("click", hideInactive);
 
-  function render() {
-    tabsEl.replaceChildren();
+  function fireTabAction() {
+    if (onTabAction) onTabAction();
+  }
+
+  function renderInto(target: HTMLElement) {
+    target.replaceChildren();
     for (const tab of lastTabs) {
       const el = document.createElement("button");
       el.type = "button";
@@ -79,16 +93,25 @@ export function setupTabs(opts: TabsOptions): TabsController {
           // — the bridge already attaches here, this just brings it forward.
           send({ type: "refocus" });
         }
+        fireTabAction();
       });
-      tabsEl.appendChild(el);
+      target.appendChild(el);
     }
     const newBtn = document.createElement("button");
     newBtn.type = "button";
     newBtn.className = "new-tab";
     newBtn.textContent = "+";
     newBtn.title = "New tab";
-    newBtn.addEventListener("click", () => send({ type: "newTab" }));
-    tabsEl.appendChild(newBtn);
+    newBtn.addEventListener("click", () => {
+      send({ type: "newTab" });
+      fireTabAction();
+    });
+    target.appendChild(newBtn);
+  }
+
+  function render() {
+    renderInto(tabsEl);
+    if (sidebarEl) renderInto(sidebarEl);
   }
 
   return {
