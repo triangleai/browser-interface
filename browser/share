@@ -15,6 +15,41 @@
 # browser.
 set -euo pipefail
 
+usage() {
+  cat <<'EOF'
+browser/share — expose the local bridge over a public ngrok URL
+
+Usage:
+  browser/share [ngrok flags...]
+
+Auth (one is required):
+  --oauth <provider>            e.g. google, github, microsoft
+    --oauth-allow-email <addr>  repeat for multiple addresses
+    --oauth-allow-domain <dom>  allow a whole email domain
+  --oidc <issuer-url>           OIDC provider, with --oidc-client-id / --oidc-client-secret
+  --cidr-allow <range>          allow only these IP ranges
+  --mutual-tls-cas <path>       require client certs signed by these CAs
+  --traffic-policy-file <path>  arbitrary policy YAML
+  --auth-disabled               run without auth (anyone with the URL drives your browser)
+
+Endpoint URL:
+  --url <url>                   reuse a stable URL, e.g. https://you.ngrok.app
+                                (without this, ngrok assigns a fresh URL each run)
+
+Common examples:
+  browser/share --oauth google --oauth-allow-email you@example.com
+  browser/share --oauth google --oauth-allow-email you@example.com --url https://you.ngrok.app
+  browser/share --cidr-allow 203.0.113.0/24
+
+Install ngrok from https://ngrok.com/download if it isn't already.
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 0
+fi
+
 if ! command -v ngrok >/dev/null 2>&1; then
   echo "ngrok not found. Install it from https://ngrok.com/download" >&2
   exit 1
