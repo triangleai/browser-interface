@@ -20,7 +20,11 @@ usage() {
 browser/share — expose the local bridge over a public ngrok URL
 
 Usage:
-  browser/share [ngrok flags...]
+  browser/share [domain] [ngrok flags...]
+
+Optional positional:
+  domain                        reuse a stable ngrok URL, e.g. you.ngrok.app
+                                (omit to let ngrok assign a fresh URL)
 
 Auth (one is required):
   --oauth <provider>            e.g. google, github, microsoft
@@ -32,13 +36,9 @@ Auth (one is required):
   --traffic-policy-file <path>  arbitrary policy YAML
   --auth-disabled               run without auth (anyone with the URL drives your browser)
 
-Endpoint URL:
-  --url <url>                   reuse a stable URL, e.g. https://you.ngrok.app
-                                (without this, ngrok assigns a fresh URL each run)
-
 Common examples:
   browser/share --oauth google --oauth-allow-email you@example.com
-  browser/share --oauth google --oauth-allow-email you@example.com --url https://you.ngrok.app
+  browser/share you.ngrok.app --oauth google --oauth-allow-email you@example.com
   browser/share --cidr-allow 203.0.113.0/24
 
 Install ngrok from https://ngrok.com/download if it isn't already.
@@ -53,6 +53,16 @@ fi
 if ! command -v ngrok >/dev/null 2>&1; then
   echo "ngrok not found. Install it from https://ngrok.com/download" >&2
   exit 1
+fi
+
+# Optional first positional = ngrok domain. Bare hostnames get https://
+# prepended; full URLs pass through as-is.
+domain=""
+if [[ "${1:0:1}" != "-" ]]; then
+  domain="$1"; shift
+  if [[ "$domain" != http://* && "$domain" != https://* ]]; then
+    domain="https://$domain"
+  fi
 fi
 
 # Strip our own --auth-disabled flag before forwarding to ngrok.
@@ -86,9 +96,7 @@ if [[ $has_auth -eq 0 && $auth_disabled -eq 0 ]]; then
   exit 1
 fi
 
-# No args, or first positional is a flag → forward port 8787 with the flags.
-if [[ ${#ngrok_args[@]} -eq 0 || "${ngrok_args[0]:0:1}" == "-" ]]; then
-  exec ngrok http 8787 "${ngrok_args[@]+"${ngrok_args[@]}"}"
+if [[ -n "$domain" ]]; then
+  exec ngrok http 8787 --url "$domain" "${ngrok_args[@]+"${ngrok_args[@]}"}"
 fi
-
-exec ngrok "${ngrok_args[@]}"
+exec ngrok http 8787 "${ngrok_args[@]+"${ngrok_args[@]}"}"
