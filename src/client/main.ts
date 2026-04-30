@@ -335,6 +335,23 @@ document.addEventListener("click", (e) => {
   closeMobileSidebar();
 });
 
+// Tap-anywhere-outside-the-frame → send Escape to the remote. Closes any
+// open menu / dropdown / modal on the page, since clicking outside the
+// frame area (status bar, stage letterbox, toolbar empty space, body
+// padding) is the user's natural "dismiss" gesture but those clicks
+// otherwise go nowhere — the remote never sees them. Skipped when the
+// click lands inside the frame (handled by the touch / mouse path) or
+// on an interactive bridge-UI control (buttons, links, inputs, ARIA
+// button roles), so a button's own action runs without an extra
+// Escape going to the remote.
+document.addEventListener("click", (e) => {
+  const target = e.target as Element | null;
+  if (!target) return;
+  if (els.frame.contains(target)) return;
+  if (target.closest("button, input, a, [role='button']")) return;
+  bridge.send({ type: "key", key: "Escape", code: "Escape", phase: "press" });
+});
+
 function applySidebarWidth(px: number) {
   const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(px)));
   document.documentElement.style.setProperty("--tab-sidebar-width", `${clamped}px`);
