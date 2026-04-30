@@ -1515,6 +1515,26 @@ export class BrowserSession extends EventEmitter {
         } catch (err) {
           console.warn("[browserface] setWindowBounds failed:", err);
         }
+        // Push a one-shot frame at the new dims. Chrome's screencast only
+        // emits when the page paints, so a fully-painted static page doesn't
+        // produce a fresh Page.screencastFrame just because its window
+        // resized — the user would see a stale frame box (sized by fitFrame
+        // to the new aspect) until they scrolled or clicked. captureCurrent-
+        // Frame uses Page.captureScreenshot, which captures the live render
+        // unconditionally. Update the cached viewport first so the emitted
+        // ScreenshotMessage carries the new dims; the next real screencast
+        // frame will overwrite if Chrome lands on something different.
+        this.viewport = {
+          ...this.viewport,
+          width: targetContentW,
+          height: targetContentH,
+        };
+        try {
+          const refresh = await this.captureCurrentFrame();
+          if (refresh) this.emit("screenshot", refresh);
+        } catch (err) {
+          console.warn("[browserface] post-setViewport capture failed:", err);
+        }
         return;
       }
       case "reviveTab":
