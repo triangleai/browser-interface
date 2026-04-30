@@ -582,8 +582,12 @@ setupTouch({
     // says so (touchstart-dispatched hover probe came back in time) or
     // the remote already has a field focused (tapping the same input
     // again). Anything else: don't focus, so the keyboard doesn't pop
-    // for taps on plain text or images.
-    if (predictedEditable || remoteHasField) pasteHelper.focus();
+    // for taps on plain text or images. Uses forceFocus (blur +
+    // focus) so iOS sees a fresh focus transition even when the
+    // helper was already focused from a prior selection-handler call
+    // — that earlier focus didn't pop the keyboard (out of gesture)
+    // and a plain focus() now would be a no-op.
+    if (predictedEditable || remoteHasField) pasteHelper.forceFocus();
   },
 });
 
