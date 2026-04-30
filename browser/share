@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wrapper around ngrok that defaults to forwarding the bridge port (5252).
+# Wrapper around ngrok that defaults to forwarding the bridge port (8768).
 # Install ngrok from https://ngrok.com/download if it isn't already.
 # Pass any extra ngrok flags through, e.g.:
 #
@@ -97,6 +97,6 @@ if [[ $has_auth -eq 0 && $auth_disabled -eq 0 ]]; then
 fi
 
 if [[ -n "$domain" ]]; then
-  exec ngrok http 5252 --url "$domain" "${ngrok_args[@]+"${ngrok_args[@]}"}"
+  exec ngrok http 8768 --url "$domain" "${ngrok_args[@]+"${ngrok_args[@]}"}"
 fi
-exec ngrok http 5252 "${ngrok_args[@]+"${ngrok_args[@]}"}"
+exec ngrok http 8768 "${ngrok_args[@]+"${ngrok_args[@]}"}"

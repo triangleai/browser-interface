@@ -176,7 +176,7 @@ export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandl
     for (const ws of clients) ws.close();
   });
 
-  const port = opts.listenPort ?? 5252;
+  const port = opts.listenPort ?? 8768;
   const host = opts.listenHost ?? "127.0.0.1";
   await new Promise<void>((res) => httpServer.listen(port, host, res));
   const addr = httpServer.address();

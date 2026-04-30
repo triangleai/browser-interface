@@ -90,7 +90,7 @@ CDP target (skips auto-discovery):
 
 Server:
   --listen-host <host>     HTTP/WS bind host (default 127.0.0.1)
-  --listen-port, -l <port> HTTP/WS bind port (default 5252)
+  --listen-port, -l <port> HTTP/WS bind port (default 8768)
 
 Viewport / capture:
   --width <px>             Override viewport width (Emulation.setDeviceMetricsOverride)
