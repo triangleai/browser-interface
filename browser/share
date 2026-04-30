@@ -22,7 +22,7 @@ browser/share — expose the local bridge over a public ngrok URL
 Usage:
   browser/share [domain] [ngrok flags...]
 
-Optional positional:
+Optional:
   domain                        reuse a stable ngrok URL, e.g. you.ngrok.app
                                 (omit to let ngrok assign a fresh URL)
 
