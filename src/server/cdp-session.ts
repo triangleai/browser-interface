@@ -1129,17 +1129,22 @@ export class BrowserSession extends EventEmitter {
     this.chromeBarWidthDiff = null;
     this.chromeBarHeightDiff = null;
 
-    // Domain enables are best-effort and timeout-bounded — if a domain doesn't
-    // come back within a short window the page is probably wedged, but we
-    // still want to update the UI (so the user sees the tab switch happened)
-    // and let the inactive-tab detection downstream handle the recovery flow.
-    for (const domain of ["Page", "DOM", "Runtime", "Network"]) {
-      try {
-        await withTimeout(this.send(`${domain}.enable`), DOMAIN_TIMEOUT_MS);
-      } catch (err) {
-        console.warn(`[browserface] enable ${domain} failed:`, err);
-      }
-    }
+    // Domain enables are best-effort and timeout-bounded. Run them in
+    // parallel so a sleepy renderer doesn't stall us serially through
+    // four 1.5s timeouts — worst case is now 1.5s, not 6s. If a domain
+    // doesn't come back the page is probably wedged, but we still want
+    // to update the UI (so the user sees the tab switch happened) and
+    // let the inactive-tab detection downstream handle the recovery
+    // flow.
+    await Promise.all(
+      ["Page", "DOM", "Runtime", "Network"].map(async (domain) => {
+        try {
+          await withTimeout(this.send(`${domain}.enable`), DOMAIN_TIMEOUT_MS);
+        } catch (err) {
+          console.warn(`[browserface] enable ${domain} failed:`, err);
+        }
+      }),
+    );
 
     if (!this.visible) {
       this.visible = true;
@@ -1158,13 +1163,33 @@ export class BrowserSession extends EventEmitter {
     // startScreencast already swallows internal errors and bounds its own work.
     await this.startScreencast();
 
-    // Detect Memory-Saver-discarded tabs by waiting for a first frame: live
-    // pages always emit one immediately on screencast start. If we get nothing
-    // within a couple of seconds, almost certainly the renderer is discarded
-    // and the tab needs a force-reload to come back.
+    // Detect tabs whose screencast pipeline hasn't kicked back in after
+    // wake — live pages emit a frame on screencast start, so missing
+    // frames after a switch usually means the renderer is still spinning
+    // up (frozen → waking) or fully discarded.
+    //
+    // Two-step recovery to avoid jumping straight to the destructive
+    // reload prompt: at the timeout, try Page.captureScreenshot first.
+    // It's paint-state-independent and typically returns a frame on a
+    // wakeable tab even when the screencast hasn't fired yet — that
+    // alone is enough to give the user something to look at and the
+    // screencast usually catches up shortly after. Only if that also
+    // fails do we surface the inactive overlay (whose "Reactivate"
+    // button does the destructive Page.reload).
     const switchedToId = targetId;
     const framesAtSwitch = this.frameCount;
-    setTimeout(() => {
+    setTimeout(async () => {
+      if (this.targetId !== switchedToId) return;
+      if (this.frameCount > framesAtSwitch) return;
+      try {
+        const refresh = await this.captureCurrentFrame();
+        if (refresh && this.targetId === switchedToId) {
+          this.emit("screenshot", refresh);
+          return;
+        }
+      } catch {
+        // fall through to inactive overlay
+      }
       if (this.targetId === switchedToId && this.frameCount === framesAtSwitch) {
         this.emit("inactive", { type: "inactive", tabId: switchedToId });
       }
