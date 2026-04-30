@@ -28,7 +28,11 @@ Client UI (any browser) — and/or agents
 
 ## Run
 
+Run browserface from a clone of this repo:
+
 ```sh
+git clone https://github.com/browserface/browserface
+cd browserface
 browser/face
 ```
 
