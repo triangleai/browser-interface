@@ -241,6 +241,15 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
       forward("control-key");
       return;
     }
+    if (e.key === "Backspace" || e.key === "Delete") {
+      // Field mode: the helper's `input` event already forwards
+      // deleteContent{Backward,Forward} — forwarding here too would
+      // double-delete. Selection mode (contenteditable on the remote, e.g.
+      // a ChatGPT chat box): the input event is ignored, so the keydown
+      // path is the only chance to forward.
+      if (!state.field) forward("delete-key");
+      return;
+    }
     if (e.key.length === 1) {
       if (state.field) {
         // Ctrl-K (kill-line) and Ctrl-Y (yank) modify content rather than
