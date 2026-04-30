@@ -13,6 +13,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "build:client": "node scripts/build-client.mjs",
     "dev": "node scripts/dev.mjs",
+    "find-chrome": "node scripts/find-chrome.mjs",
     "start": "node dist/server/cli.js",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "clean": "rm -rf dist"
