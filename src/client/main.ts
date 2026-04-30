@@ -51,6 +51,31 @@ const els = {
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
 let isVisible = true;
 let activeTabId: string | null = null;
+// If the URL hash carries a `tab=<id>` parameter on load, this holds
+// that id until the first `tabs` message arrives — at which point we
+// either fire a one-shot `switchTab` to that id (if the id is valid
+// and not already active) or drop it (if the id no longer matches any
+// real tab). `null` means "no pending requested switch."
+let urlRequestedTabId: string | null = parseTabFromHash();
+
+function parseTabFromHash(): string | null {
+  const m = window.location.hash.match(/(?:^|[#&])tab=([^&]+)/);
+  return m && m[1] ? decodeURIComponent(m[1]) : null;
+}
+
+function updateHashForActiveTab(tabId: string | null): void {
+  // Hash-based so the value never reaches the server (CDP target ids
+  // are ephemeral but still session-scoped — no point baking them
+  // into a request log) and so navigation/refresh in the bridge UI
+  // stays a no-op for everyone else. replaceState avoids cluttering
+  // the back/forward stack on every tab switch.
+  const next = tabId ? `tab=${encodeURIComponent(tabId)}` : "";
+  const current = window.location.hash.replace(/^#/, "");
+  if (current === next) return;
+  const url =
+    window.location.pathname + window.location.search + (next ? "#" + next : "");
+  history.replaceState(null, "", url);
+}
 // Mirrors whether the remote has an editable input/textarea focused, kept
 // in sync with the latest selection message. Drives helper focus on touch:
 // on coarse-pointer devices we only want the OS keyboard up when there's
@@ -154,6 +179,24 @@ function handleServerMessage(msg: ServerMessage) {
       }
       activeTabId = nextActive;
       tabs.setTabs(msg.tabs);
+      // If the URL hash requested a specific tab on load, try to switch
+      // there — once. We clear the requested id whether or not we
+      // actually fire the switch so the next `tabs` message just falls
+      // through to URL-mirroring without re-attempting.
+      if (urlRequestedTabId !== null) {
+        const requested = urlRequestedTabId;
+        urlRequestedTabId = null;
+        if (requested !== nextActive && msg.tabs.some((t) => t.id === requested)) {
+          bridge.send({ type: "switchTab", tabId: requested });
+          // Don't update the hash here — let the post-switch tabs
+          // message do it once the active tab actually changes.
+          return;
+        }
+      }
+      // Mirror the current active tab in the URL hash so the page is
+      // shareable: opening the link in another browser will switch
+      // the bridge to the same tab via the requested-tab path above.
+      updateHashForActiveTab(nextActive);
       return;
     }
     case "visibility":
