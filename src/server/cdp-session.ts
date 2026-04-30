@@ -60,10 +60,12 @@ type SelectionPayload = {
     selectionStart: number;
     selectionEnd: number;
   };
+  editable?: boolean;
 };
 
 function selectionPayloadEqual(a: SelectionPayload, b: SelectionPayload): boolean {
   if (a.text !== b.text) return false;
+  if (!!a.editable !== !!b.editable) return false;
   const af = a.field;
   const bf = b.field;
   if (!af && !bf) return true;
@@ -75,8 +77,14 @@ function selectionPayloadEqual(a: SelectionPayload, b: SelectionPayload): boolea
   );
 }
 
-// Runs in the page's main world. Returns either a `field` payload (when the
-// focused element is an <input> / <textarea>) or just the selection text.
+// Runs in the page's main world. Returns the current selection text, plus:
+//   - `field` (value + caret range) when the focused element is an
+//     <input>/<textarea> — drives the desktop helper's value mirror.
+//   - `editable` (boolean) for any editable focus, including
+//     contenteditable elements that don't fit the field model. Drives
+//     mobile OS-keyboard pop on the client (it focuses the paste helper
+//     when an editable target is focused, regardless of whether we have
+//     a usable value/selection mirror for it).
 // JSON-encoded so we can ship a structured value through Runtime.evaluate's
 // returnByValue without dealing with object-graph serialization.
 const SELECTION_PROBE = `JSON.stringify((() => {
@@ -85,10 +93,18 @@ const SELECTION_PROBE = `JSON.stringify((() => {
     const v = ae.value || '';
     const s = ae.selectionStart || 0;
     const e = ae.selectionEnd || 0;
-    return { text: v.slice(s, e), field: { value: v, selectionStart: s, selectionEnd: e } };
+    return {
+      text: v.slice(s, e),
+      field: { value: v, selectionStart: s, selectionEnd: e },
+      editable: true,
+    };
   }
   const sel = document.getSelection();
-  return { text: sel ? sel.toString() : '' };
+  const text = sel ? sel.toString() : '';
+  // isContentEditable returns true for contenteditable subtrees,
+  // including inherited contenteditable="true" from an ancestor.
+  const editable = !!(ae && ae.isContentEditable);
+  return editable ? { text, editable: true } : { text };
 })())`;
 
 // Builds an in-page expression for find-on-page. Walks visible text once per
@@ -433,6 +449,10 @@ export class BrowserSession extends EventEmitter {
   private hoverPending = false;
   private lastHoveredHref: string | null = null;
   private lastCursor: string = "default";
+  // Whether the last hover landed on an editable target (input, textarea,
+  // contenteditable). Mirrored to the client so the touch handler can
+  // decide synchronously whether a tap should pop the OS keyboard.
+  private lastHoveredEditable: boolean = false;
   // Cached Browser.getWindowForTarget result for the attached tab. Looked up
   // lazily on first setViewport, then reused for subsequent resize ticks so a
   // drag doesn't re-roundtrip per move. Cleared on tab switch.
@@ -813,32 +833,63 @@ export class BrowserSession extends EventEmitter {
     const y = this.lastMouseY;
     try {
       const evalRes = (await withTimeout(
-        this.send<{ result: { value?: { href: string | null; cursor: string } } }>(
+        this.send<{
+          result: { value?: { href: string | null; cursor: string; editable?: boolean } };
+        }>(
           "Runtime.evaluate",
           {
             // elementFromPoint returns the topmost element at the coords. We
-            // collect two pieces of info: the nearest anchor's href (for the
-            // status-bar hover URL) and an effective cursor — first by
+            // collect three pieces of info: the nearest anchor's href (for
+            // the status-bar hover URL), an effective cursor — first by
             // walking ancestors looking for a non-`auto` computed cursor,
             // then by inferring from the element's role for common cases
-            // (links, inputs/textareas, contenteditable). getComputedStyle
-            // returns `auto` rather than the resolved cursor for the default
-            // case, so we handle the resolution ourselves.
+            // (links, inputs/textareas, contenteditable) — and an
+            // `editable` flag that's true only when the hover is over an
+            // input/textarea/contenteditable target. The flag is distinct
+            // from `cursor === 'text'` because plain page text *also*
+            // produces an I-beam cursor (when the point is inside a glyph
+            // rect), and the client needs to tell the two cases apart for
+            // decisions like whether a tap should pop the OS keyboard.
             expression: `(()=>{
-              const el = document.elementFromPoint(${x}, ${y});
-              if (!el) return { href: null, cursor: 'default' };
+              const x = ${x}, y = ${y};
+              const stack = document.elementsFromPoint(x, y);
+              const top = stack[0];
+              if (!top) return { href: null, cursor: 'default', editable: false };
+              const TEXT_INPUT_TYPES = ['text','search','email','url','tel','password','number'];
+              function isEditableEl(e) {
+                if (!e) return false;
+                if (e.tagName === 'TEXTAREA') return true;
+                if (e.tagName === 'INPUT') {
+                  const t = (e.getAttribute('type') || 'text').toLowerCase();
+                  return TEXT_INPUT_TYPES.indexOf(t) !== -1;
+                }
+                if (e.isContentEditable) return true;
+                // ARIA roles that ride on plain divs to act as text inputs —
+                // ProseMirror / Lexical editors, custom searchboxes, etc.
+                const role = e.getAttribute && e.getAttribute('role');
+                if (role === 'textbox' || role === 'searchbox' || role === 'combobox') return true;
+                return false;
+              }
+              // Walk the stacked hit-list, not just the topmost element.
+              // elementsFromPoint includes everything that geometrically
+              // contains the point — the input, its wrapper div, body,
+              // html — so a tap inside an input that's wrapped by a
+              // styled container (icon + input flex row, etc.) still
+              // finds the input even when the wrapper is the literal
+              // pointer target.
+              let editable = false;
+              for (let i = 0; i < stack.length; i++) {
+                if (isEditableEl(stack[i])) { editable = true; break; }
+              }
               let cursor = 'auto';
-              for (let cur = el; cur && cur !== document.documentElement; cur = cur.parentElement) {
+              for (let cur = top; cur && cur !== document.documentElement; cur = cur.parentElement) {
                 const cs = window.getComputedStyle(cur);
                 if (cs.cursor && cs.cursor !== 'auto') { cursor = cs.cursor; break; }
               }
               if (cursor === 'auto') {
-                if (el.closest('a[href]')) cursor = 'pointer';
-                else if (el.closest('textarea, [contenteditable=true], [contenteditable=""]')) cursor = 'text';
-                else if (el.closest('input')) {
-                  const t = (el.closest('input').getAttribute('type') || 'text').toLowerCase();
-                  cursor = (t === 'text' || t === 'search' || t === 'email' || t === 'url' || t === 'tel' || t === 'password' || t === 'number') ? 'text' : 'default';
-                } else {
+                if (top.closest('a[href]')) cursor = 'pointer';
+                else if (editable) cursor = 'text';
+                else {
                   // Plain page text — show the I-beam only when the point is
                   // actually inside a glyph rect, not just somewhere over a
                   // text-containing element. Browsers do roughly this: hover
@@ -878,22 +929,30 @@ export class BrowserSession extends EventEmitter {
                   cursor = isText ? 'text' : 'default';
                 }
               }
-              const a = el.closest('a');
-              return { href: (a && a.href) || null, cursor };
+              const a = top.closest('a');
+              return { href: (a && a.href) || null, cursor, editable };
             })()`,
             returnByValue: true,
           },
         ),
         500,
-      )) as { result?: { value?: { href: string | null; cursor: string } } } | null;
+      )) as {
+        result?: { value?: { href: string | null; cursor: string; editable?: boolean } };
+      } | null;
       const v = evalRes?.result?.value;
       if (!v) return;
       const href = v.href;
       const cursor = v.cursor || "default";
-      if (href !== this.lastHoveredHref || cursor !== this.lastCursor) {
+      const editable = !!v.editable;
+      if (
+        href !== this.lastHoveredHref ||
+        cursor !== this.lastCursor ||
+        editable !== this.lastHoveredEditable
+      ) {
         this.lastHoveredHref = href;
         this.lastCursor = cursor;
-        this.emit("hover", { type: "hover", href, cursor });
+        this.lastHoveredEditable = editable;
+        this.emit("hover", { type: "hover", href, cursor, editable });
       }
     } catch {
       // ignore — CDP can be momentarily busy mid-navigation
@@ -953,10 +1012,15 @@ export class BrowserSession extends EventEmitter {
       this.hoverTimer = null;
     }
     this.hoverPending = false;
-    if (this.lastHoveredHref !== null || this.lastCursor !== "default") {
+    if (
+      this.lastHoveredHref !== null ||
+      this.lastCursor !== "default" ||
+      this.lastHoveredEditable
+    ) {
       this.lastHoveredHref = null;
       this.lastCursor = "default";
-      this.emit("hover", { type: "hover", href: null, cursor: "default" });
+      this.lastHoveredEditable = false;
+      this.emit("hover", { type: "hover", href: null, cursor: "default", editable: false });
     }
   }
 
@@ -1060,7 +1124,7 @@ export class BrowserSession extends EventEmitter {
     this.targetId = targetId;
     // Different tabs can live in different OS windows (split Chrome window
     // setups), so invalidate the cached windowId and chrome-bar measurements.
-    // Re-fetched on the next resize-handle drag.
+    // Re-fetched on the next setViewport.
     this.windowId = null;
     this.chromeBarWidthDiff = null;
     this.chromeBarHeightDiff = null;
@@ -1291,6 +1355,16 @@ export class BrowserSession extends EventEmitter {
         // press, then unrelated motion, then a release, and the selection
         // never extends.
         const button: MouseButton | "none" = buttonsHeld[0] ?? "none";
+        // Update the cached coords and kick off the hover probe BEFORE
+        // awaiting the dispatchMouseEvent. The probe runs an independent
+        // Runtime.evaluate against the current DOM state and doesn't
+        // depend on the renderer having processed the mouseMoved, so
+        // letting the two CDP calls overlap saves ~50–100ms on the
+        // touch-start latency path that mobile relies on for editable-
+        // area prediction.
+        this.lastMouseX = action.x;
+        this.lastMouseY = action.y;
+        this.scheduleHoverCheck();
         await this.send("Input.dispatchMouseEvent", {
           type: "mouseMoved",
           x: action.x,
@@ -1299,9 +1373,6 @@ export class BrowserSession extends EventEmitter {
           buttons,
           modifiers: modifierMask(action.modifiers),
         });
-        this.lastMouseX = action.x;
-        this.lastMouseY = action.y;
-        this.scheduleHoverCheck();
         return;
       }
       case "scroll": {
@@ -1514,6 +1585,26 @@ export class BrowserSession extends EventEmitter {
           });
         } catch (err) {
           console.warn("[browserface] setWindowBounds failed:", err);
+        }
+        // Push a one-shot frame at the new dims. Chrome's screencast only
+        // emits when the page paints, so a fully-painted static page doesn't
+        // produce a fresh Page.screencastFrame just because its window
+        // resized — the user would see a stale frame box (sized by fitFrame
+        // to the new aspect) until they scrolled or clicked. captureCurrent-
+        // Frame uses Page.captureScreenshot, which captures the live render
+        // unconditionally. Update the cached viewport first so the emitted
+        // ScreenshotMessage carries the new dims; the next real screencast
+        // frame will overwrite if Chrome lands on something different.
+        this.viewport = {
+          ...this.viewport,
+          width: targetContentW,
+          height: targetContentH,
+        };
+        try {
+          const refresh = await this.captureCurrentFrame();
+          if (refresh) this.emit("screenshot", refresh);
+        } catch (err) {
+          console.warn("[browserface] post-setViewport capture failed:", err);
         }
         return;
       }

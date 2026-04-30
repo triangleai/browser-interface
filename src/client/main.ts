@@ -2,10 +2,10 @@ import type { ModifierKey, MouseButton, ServerMessage } from "../shared/protocol
 import { createBridge } from "./bridge.js";
 import { setupFindBar } from "./find-bar.js";
 import { setupPasteHelper } from "./paste-helper.js";
-import { setupResize } from "./resize.js";
 import { setupStatusBar } from "./statusbar.js";
 import { setupTabs } from "./tabs.js";
 import { setupToolbar } from "./toolbar.js";
+import { setupTouch } from "./touch.js";
 
 interface Viewport {
   width: number;
@@ -34,8 +34,6 @@ const els = {
   inactiveRevive: document.getElementById("inactive-revive") as HTMLButtonElement,
   inactiveCancel: document.getElementById("inactive-cancel") as HTMLButtonElement,
   toast: document.getElementById("toast") as HTMLDivElement,
-  resizeHandle: document.getElementById("resize-handle") as HTMLButtonElement,
-  resizeReadout: document.getElementById("resize-readout") as HTMLDivElement,
   pasteHelper: document.getElementById("paste-helper") as HTMLInputElement,
   findBar: document.getElementById("find-bar") as HTMLDivElement,
   findInput: document.getElementById("find-input") as HTMLInputElement,
@@ -45,11 +43,38 @@ const els = {
   findClose: document.getElementById("find-close") as HTMLButtonElement,
   orientToggle: document.getElementById("orient-toggle") as HTMLButtonElement,
   sidebarResize: document.getElementById("sidebar-resize") as HTMLDivElement,
+  tabSidebar: document.getElementById("tab-sidebar") as HTMLElement,
+  vpMatchSize: document.getElementById("vp-match-size") as HTMLButtonElement,
+  vpDesktopSize: document.getElementById("vp-desktop-size") as HTMLButtonElement,
 };
 
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
 let isVisible = true;
 let activeTabId: string | null = null;
+// Mirrors whether the remote has an editable input/textarea focused, kept
+// in sync with the latest selection message. Drives helper focus on touch:
+// on coarse-pointer devices we only want the OS keyboard up when there's
+// somewhere to type, not on every tap.
+let remoteHasField = false;
+// Whether the remote's tracked mouse position is currently over an
+// editable target — text-type input, textarea, or contenteditable.
+// Updated from `hover` messages. The touch handler reads this on
+// touchend to decide whether to focus the paste helper inside the
+// gesture, popping the OS keyboard for editable targets only. Distinct
+// from `cursor === 'text'` because plain page text glyphs also produce
+// the I-beam cursor without being editable.
+let lastCursorEditable = false;
+// True between a touchstart-dispatched hover probe and the matching
+// hover response — i.e., we don't yet know what the user just tapped.
+// On a tap that lands while still in flight, the touch handler
+// speculatively force-focuses the helper so a slow probe doesn't
+// cost the user a second tap on a real field. The selection-handler
+// blur path dismisses the keyboard ~100ms later if the click turned
+// out to be on a non-editable. Net: every field works first-tap;
+// non-editable taps only flash when the probe is unusually slow.
+let probeInFlight = false;
+const isCoarsePointer =
+  typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
 function fitFrame() {
   // Sets the framed image element to the largest size that fits the stage,
@@ -146,9 +171,34 @@ function handleServerMessage(msg: ServerMessage) {
       // Mirror the remote's cursor on the screencast frame so hovering a
       // link shows pointer, an input shows the I-beam, etc.
       els.frame.style.cursor = msg.cursor || "default";
+      lastCursorEditable = !!msg.editable;
+      probeInFlight = false;
+      console.log("[probe] hover-received", {
+        cursor: msg.cursor,
+        editable: !!msg.editable,
+        href: msg.href,
+      });
       return;
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
+      // `editable` is the superset signal: input/textarea (which also set
+      // `field`) AND contenteditable subtrees (which don't, because their
+      // value/selection model doesn't fit the field tuple). Track this
+      // separately so the mobile keyboard pops for ChatGPT-style
+      // contenteditable composers, not just plain inputs.
+      remoteHasField = !!msg.editable;
+      // On coarse-pointer devices, sync the OS keyboard with the remote's
+      // focused-field state. iOS leaves a transient user-activation window
+      // open for ~5s after a tap, so a selection message that arrives
+      // ~100ms later (the cdp-session selection-poll throttle) can still
+      // pop the keyboard from a programmatic focus call. Blur on no-field
+      // dismisses the keyboard when the user taps a non-editable area.
+      // Desktop is unchanged — the helper stays focused unconditionally
+      // there because it's the clipboard anchor.
+      if (isCoarsePointer) {
+        if (remoteHasField) pasteHelper.focus();
+        else pasteHelper.blur();
+      }
       return;
     case "findResult":
       findBar.setResult(msg.current, msg.total);
@@ -156,10 +206,8 @@ function handleServerMessage(msg: ServerMessage) {
     case "error":
       console.warn("[bridge] server error:", msg.message);
       showToast(msg.message);
-      if (msg.id !== undefined) resize.notifyResolved(msg.id);
       return;
     case "ack":
-      if (msg.id !== undefined) resize.notifyResolved(msg.id);
       return;
   }
 }
@@ -181,19 +229,24 @@ const pasteHelper = setupPasteHelper({
   isUrlBarFocused: () => document.activeElement === els.url,
   debug: true,
 });
-const resize = setupResize({
-  handle: els.resizeHandle,
-  readout: els.resizeReadout,
-  frame: els.frame,
-  getViewport: () => viewport,
-  send: bridge.send,
-});
+// Re-anchor focus on the paste helper after another input gives it up
+// (URL bar, find bar). On coarse pointers we suppress the call when the
+// remote isn't on an editable field, so dismissing the URL bar on mobile
+// doesn't immediately re-pop the OS keyboard via the helper.
+function refocusPasteHelper() {
+  if (!isCoarsePointer || remoteHasField) pasteHelper.focus();
+}
 const tabs = setupTabs({
   tabsEl: els.tabs,
+  sidebarEl: els.tabSidebar,
   inactiveOverlay: els.inactiveOverlay,
   inactiveRevive: els.inactiveRevive,
   inactiveCancel: els.inactiveCancel,
   send: bridge.send,
+  // After any tab switch / new-tab, dismiss the mobile overlay sidebar so
+  // the user lands back on the page they just selected without an extra
+  // tap to close. No-op on desktop or when the sidebar isn't open.
+  onTabAction: () => closeMobileSidebar(),
 });
 const toolbar = setupToolbar({
   back: els.back,
@@ -203,7 +256,7 @@ const toolbar = setupToolbar({
   url: els.url,
   openExternal: els.openExternal,
   send: bridge.send,
-  onUrlBlur: () => pasteHelper.focus(),
+  onUrlBlur: refocusPasteHelper,
 });
 const findBar = setupFindBar({
   bar: els.findBar,
@@ -213,7 +266,7 @@ const findBar = setupFindBar({
   nextBtn: els.findNext,
   closeBtn: els.findClose,
   send: bridge.send,
-  onClose: () => pasteHelper.focus(),
+  onClose: refocusPasteHelper,
 });
 bridge.connect();
 
@@ -252,12 +305,52 @@ const SIDEBAR_CLOSE_AT = 60;
 const SIDEBAR_OPEN_DEFAULT = 240;
 const SIDEBAR_OPEN_FLOOR = 180;
 
+// Narrow-viewport breakpoint. The CSS half lives in style.css under the
+// `MOBILE-BP-CSS` marker; media queries can't read CSS variables, so
+// changing the value means editing both sides.
+const MOBILE_BP = 701;
 type Orient = "horizontal" | "vertical";
 function applyOrient(o: Orient) {
   document.body.classList.toggle("orient-vertical", o === "vertical");
 }
+function closeMobileSidebar() {
+  if (window.innerWidth >= MOBILE_BP) return;
+  if (!document.body.classList.contains("orient-vertical")) return;
+  applyOrient("horizontal");
+  localStorage.setItem(ORIENT_KEY, "horizontal");
+}
 const storedOrient = localStorage.getItem(ORIENT_KEY);
 applyOrient(storedOrient === "vertical" ? "vertical" : "horizontal");
+
+// Tap-outside-to-close for the mobile overlay sidebar. Skipped on desktop
+// (where vertical mode is a layout push, not an overlay) and skipped when
+// the tap lands inside the sidebar or on the hamburger — the sidebar's
+// own button handlers and the toggle button already manage those paths.
+document.addEventListener("click", (e) => {
+  if (window.innerWidth >= MOBILE_BP) return;
+  if (!document.body.classList.contains("orient-vertical")) return;
+  const target = e.target as Node;
+  if (els.tabSidebar.contains(target)) return;
+  if (els.orientToggle.contains(target)) return;
+  closeMobileSidebar();
+});
+
+// Tap-anywhere-outside-the-frame → send Escape to the remote. Closes any
+// open menu / dropdown / modal on the page, since clicking outside the
+// frame area (status bar, stage letterbox, toolbar empty space, body
+// padding) is the user's natural "dismiss" gesture but those clicks
+// otherwise go nowhere — the remote never sees them. Skipped when the
+// click lands inside the frame (handled by the touch / mouse path) or
+// on an interactive bridge-UI control (buttons, links, inputs, ARIA
+// button roles), so a button's own action runs without an extra
+// Escape going to the remote.
+document.addEventListener("click", (e) => {
+  const target = e.target as Element | null;
+  if (!target) return;
+  if (els.frame.contains(target)) return;
+  if (target.closest("button, input, a, [role='button']")) return;
+  bridge.send({ type: "key", key: "Escape", code: "Escape", phase: "press" });
+});
 
 function applySidebarWidth(px: number) {
   const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(px)));
@@ -367,8 +460,13 @@ mouseTarget.addEventListener("mouseleave", () => {
 
 // Re-anchor focus once at startup so the first keystroke after page load
 // already lands on the paste-helper. Toolbar handles the URL-bar blur path
-// via its onUrlBlur callback.
-window.addEventListener("load", () => pasteHelper.focus());
+// via its onUrlBlur callback. Skipped on coarse pointers — focusing the
+// hidden helper at load on mobile would mark it as the active element
+// before any field exists on the remote, which suppresses the keyboard
+// pop later when the selection handler calls focus() on it again.
+window.addEventListener("load", () => {
+  if (!isCoarsePointer) pasteHelper.focus();
+});
 
 // Drag-aware pointer forwarding. We send distinct mousedown / mouseup so the
 // remote sees press at one point and release at another — that's what makes
@@ -399,7 +497,7 @@ function mouseButtonsFromBits(bits: number): MouseButton[] {
 
 mouseTarget.addEventListener("mousedown", (e) => {
   e.preventDefault();
-  pasteHelper.focus();
+  refocusPasteHelper();
   mouseDbg("mousedown-event", { button: e.button, isVisible, detail: e.detail });
   if (!isVisible) {
     bridge.send({ type: "refocus" });
@@ -491,4 +589,95 @@ mouseTarget.addEventListener(
   },
   { passive: false },
 );
+
+// ── Touch (coarse pointer) ───────────────────────────────────────────────────
+//
+// Set up regardless of pointer kind so a desktop with a touchscreen still
+// works; nothing here fires unless the user actually touches.
+setupTouch({
+  frame: els.frame,
+  send: bridge.send,
+  pointToViewport,
+  getRemoteToLocalScale: () => {
+    const local = els.frame.clientWidth;
+    return local > 0 ? viewport.width / local : 1;
+  },
+  onProbeStart: () => {
+    probeInFlight = true;
+  },
+  focusPasteHelperOnTap: () => {
+    // Force-focus the helper inside the touch gesture if we have any
+    // signal that the tap might land on an editable target:
+    //   - lastCursorEditable: the touchstart probe completed and said
+    //     yes (deterministic).
+    //   - remoteHasField: the remote was already on a field before the
+    //     tap (covers tapping the same input twice).
+    //   - probeInFlight: the touchstart probe hasn't returned yet, so
+    //     we don't know — speculate. Selection handler dismisses the
+    //     keyboard ~100ms later if the click turned out non-editable.
+    // Everything else: don't focus, so plain text / image taps don't
+    // flash the keyboard. Uses forceFocus (blur + focus) so iOS sees
+    // a fresh focus transition even when the helper was already
+    // focused from a prior selection-handler call.
+    if (lastCursorEditable || remoteHasField || probeInFlight) {
+      pasteHelper.forceFocus();
+    }
+  },
+});
+
+// ── Viewport size buttons ────────────────────────────────────────────────────
+//
+// Two one-tap shortcuts that ship `setViewport`:
+//
+//   - Match size (always visible — replaces the old drag handle): resizes
+//     the remote so it fills what the user can actually see. On desktop
+//     that's the frame area (stage − in-stage status bar) so there's no
+//     letterboxing around the screencast; on mobile that's the window
+//     itself, because `body { height: 100% }` measures iOS Safari's
+//     layout viewport (which includes the URL-bar zone), and using it
+//     would leave the remote rendered taller than the visible viewport.
+//
+//   - Desktop size (narrow screens only): remote = (1280, 1280 × phone-
+//     aspect). Wide enough that responsive sites pick the desktop layout,
+//     kept at the visible viewport's aspect so the screencast fills the
+//     screen without big letterboxing. Trade-off on a phone: tall content
+//     area, more scrolling than a real desktop window.
+const DESKTOP_PRESET_WIDTH = 1280;
+function matchSizeArea(): { w: number; h: number } {
+  // Below the narrow breakpoint, prefer the visual viewport (or innerWidth/
+  // innerHeight). Mobile-designed pages expect to render at the phone's
+  // actual screen dims; using the smaller frame area would silently shrink
+  // them and the visual viewport handles iOS URL-bar collapse for free.
+  if (window.innerWidth < MOBILE_BP) {
+    const vv = window.visualViewport;
+    return {
+      w: Math.max(1, Math.round(vv?.width ?? window.innerWidth)),
+      h: Math.max(1, Math.round(vv?.height ?? window.innerHeight)),
+    };
+  }
+  // Desktop: subtract the in-stage status bar so the screencast fills the
+  // frame box at 1:1. Tab strip + toolbar live outside the stage already.
+  const statusbar = document.querySelector(".statusbar") as HTMLElement | null;
+  const statusH = statusbar ? statusbar.offsetHeight : 0;
+  return {
+    w: Math.max(1, els.stage.clientWidth),
+    h: Math.max(1, els.stage.clientHeight - statusH),
+  };
+}
+els.vpMatchSize.addEventListener("click", () => {
+  const { w, h } = matchSizeArea();
+  bridge.send({ type: "setViewport", width: w, height: h });
+});
+els.vpDesktopSize.addEventListener("click", () => {
+  // Desktop-size is only visible at narrow widths, so the aspect always
+  // comes from the phone's visible viewport — pinning to matchSizeArea
+  // means the desktop-width window stays at the same shape as the
+  // user's screen, no letterboxing when the frame fits to it.
+  const { w, h } = matchSizeArea();
+  bridge.send({
+    type: "setViewport",
+    width: DESKTOP_PRESET_WIDTH,
+    height: Math.round((DESKTOP_PRESET_WIDTH * h) / w),
+  });
+});
 

@@ -1,9 +1,9 @@
 import type { ConnectionState } from "./bridge.js";
 
 // Bottom status bar: connection-state pill, CDP endpoint label, page-load
-// indicator, FPS meter, and the hover-link readout. The status bar's
-// resize handle and resize-readout overlay live in resize.ts; the status
-// bar module owns everything else inside footer.statusbar.
+// indicator, FPS meter, and the hover-link readout. The viewport-size
+// preset buttons (match-size / desktop-size) are wired up in main.ts;
+// this module owns the meter/status cluster inside footer.statusbar.
 export interface StatusBarOptions {
   status: HTMLElement;
   cdpEndpoint: HTMLElement;

@@ -271,6 +271,12 @@ export interface HoverMessage {
   type: "hover";
   href: string | null;
   cursor?: string;
+  // True when the hovered point is inside an editable target — text-type
+  // <input>, <textarea>, or [contenteditable]. Distinct from `cursor`
+  // because plain page text also produces `cursor: 'text'` (I-beam over
+  // a glyph hit), and we need a way to tell those apart for client-side
+  // decisions like "should this tap pop the OS keyboard?"
+  editable?: boolean;
 }
 
 // Snapshot of the remote DOM's current selection / focused-field state.
@@ -294,6 +300,14 @@ export interface SelectionMessage {
     selectionStart: number;
     selectionEnd: number;
   };
+  // True when the remote's focused element is editable: <input>,
+  // <textarea>, or any contenteditable subtree. Superset of `field` —
+  // contenteditable elements set this without a `field` payload because
+  // their value/selection model doesn't fit the (value, start, end)
+  // tuple cleanly. Drives the mobile OS keyboard via the helper focus
+  // path; desktop is unaffected (its field-mirror logic still keys off
+  // `field`).
+  editable?: boolean;
 }
 
 // Result of a find action: how many matches the page contains and which one

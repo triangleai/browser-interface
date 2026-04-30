@@ -41,6 +41,17 @@ export interface RemoteState {
 
 export interface PasteHelper {
   focus: () => void;
+  // Same as focus(), but blurs first if the helper is already focused
+  // so iOS sees a fresh unfocused→focused transition. iOS Safari only
+  // pops the OS keyboard for that transition; calling focus() on an
+  // already-focused element is a no-op for keyboard purposes. Use this
+  // from inside a touch gesture handler when you want the keyboard to
+  // appear regardless of the helper's prior focus state.
+  forceFocus: () => void;
+  // Drop the helper's focus. Used on mobile to dismiss the OS keyboard
+  // when the remote no longer has an editable field focused (so tapping
+  // a non-editable area after typing in a field hides the keyboard).
+  blur: () => void;
   setRemoteState: (state: RemoteState) => void;
 }
 
@@ -324,5 +335,22 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
     dbg("copy-event", { start, end, selectedLen: selected.length, selected });
   });
 
-  return { focus, setRemoteState };
+  function forceFocus() {
+    if (isUrlBarFocused()) return;
+    // Blur the helper first so the subsequent focus() fires a fresh
+    // unfocused→focused transition, which iOS Safari uses as its
+    // signal to pop the OS keyboard. focus() on an already-focused
+    // element is treated as a no-op for keyboard purposes. Both calls
+    // happen synchronously inside the caller's gesture stack so iOS
+    // still considers the focus user-activated.
+    if (document.activeElement === el) el.blur();
+    el.focus({ preventScroll: true });
+    applyState();
+    dbg("force-focus-helper", {
+      mode: state.field ? "field" : "selection",
+      valueLen: el.value.length,
+      selection: [el.selectionStart, el.selectionEnd],
+    });
+  }
+  return { focus, forceFocus, blur: () => el.blur(), setRemoteState };
 }

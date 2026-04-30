@@ -16,16 +16,39 @@
   </span>
   <span id="status" class="status" data-state="connecting">connecting…</span>
   <button
-    id="resize-handle"
-    class="resize-handle"
+    id="vp-desktop-size"
+    class="vp-preset"
     type="button"
-    title="Drag to resize the remote viewport"
-    aria-label="Resize remote viewport"
+    title="Desktop size — desktop width at this window's aspect ratio"
+    aria-label="Resize remote viewport to desktop width at this window's aspect ratio"
   >
     <svg
       viewBox="0 0 24 24"
-      width="14"
-      height="14"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="4" width="20" height="14" rx="2" />
+      <line x1="8" y1="22" x2="16" y2="22" />
+      <line x1="12" y1="18" x2="12" y2="22" />
+    </svg>
+  </button>
+  <button
+    id="vp-match-size"
+    class="vp-preset"
+    type="button"
+    title="Match size — resize remote to this window's size"
+    aria-label="Resize remote viewport to match this window's size"
+  >
+    <svg
+      viewBox="0 0 24 24"
+      width="13"
+      height="13"
       fill="none"
       stroke="currentColor"
       stroke-width="2"
@@ -39,5 +62,4 @@
       <polyline points="20 14 20 20 14 20" />
     </svg>
   </button>
-  <div id="resize-readout" class="resize-readout" hidden></div>
 </footer>

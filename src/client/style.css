@@ -78,66 +78,79 @@ body {
   min-width: 0;
 }
 
-/* ── Vertical orientation: tabs become a left sidebar ───────────────────── */
-body.orient-vertical {
-  flex-direction: row;
-  /* In horizontal mode the tab strip's bottom edge provides the page's top
-     visual frame. Once tabs move to a sidebar, the toolbar would float
-     against the window edge — add a top border that runs over both the
-     sidebar and the right column to put a frame back. */
-  border-top: 1px solid var(--border);
+/* ── Vertical orientation: desktop layout push ──────────────────────────────
+   On desktop, vertical mode morphs the .tabs strip into a left-side
+   sidebar that pushes the rest of the bridge UI rightward. On mobile —
+   handled by the narrow-viewport block farther down — vertical mode
+   means something different (a separate overlay sidebar), so these
+   rules are scoped to the wide branch.
+
+   MOBILE-BP-CSS: the breakpoint mirrors `MOBILE_BP` in main.ts. */
+@media (min-width: 701px) {
+  body.orient-vertical {
+    flex-direction: row;
+    /* In horizontal mode the tab strip's bottom edge provides the page's
+       top visual frame. Once tabs move to a sidebar, the toolbar would
+       float against the window edge — add a top border that runs over
+       both the sidebar and the right column to put a frame back. */
+    border-top: 1px solid var(--border);
+  }
+
+  body.orient-vertical .tabs {
+    flex-direction: column;
+    align-items: stretch;
+    width: var(--tab-sidebar-width);
+    flex: 0 0 auto;
+    padding: 8px 8px;
+    gap: 4px;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body.orient-vertical .tabs::after {
+    display: none;
+  }
+
+  body.orient-vertical .tabs .tab {
+    max-width: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+  }
+
+  body.orient-vertical .tabs .tab .title {
+    max-width: none;
+    flex: 1 1 auto;
+    text-align: left;
+  }
+
+  /* Drop the horizontal-only ornaments (vertical separator between
+     inactive tabs, the active tab's curved bottom wings, and the active
+     tab's pulled-down margin) — they only make sense for the strip
+     layout. */
+  body.orient-vertical .tabs .tab:not(.active)::before,
+  body.orient-vertical .tabs .tab.active::before,
+  body.orient-vertical .tabs .tab.active::after {
+    display: none;
+  }
+
+  body.orient-vertical .tabs .tab.active {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 0;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
 }
 
-body.orient-vertical .tabs {
-  flex-direction: column;
-  align-items: stretch;
-  width: var(--tab-sidebar-width);
-  flex: 0 0 auto;
-  padding: 8px 8px;
-  gap: 4px;
-  background: var(--bg);
-  border-right: 1px solid var(--border);
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-body.orient-vertical .tabs::after {
-  display: none;
-}
-
+/* Hide the hamburger toggle whenever the sidebar is open — applies on both
+   desktop (where it'd float over the morphed tabs sidebar) and mobile
+   (where the user dismisses the overlay by tapping outside or a tab). */
 body.orient-vertical .orient-toggle {
   display: none;
-}
-
-body.orient-vertical .tab {
-  max-width: none;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: transparent;
-  text-align: left;
-}
-
-body.orient-vertical .tab .title {
-  max-width: none;
-  flex: 1 1 auto;
-  text-align: left;
-}
-
-/* Drop the horizontal-only ornaments (vertical separator between inactive
-   tabs, the active tab's curved bottom wings, and the active tab's pulled-
-   down margin) — they only make sense for the strip layout. */
-body.orient-vertical .tab:not(.active)::before,
-body.orient-vertical .tab.active::before,
-body.orient-vertical .tab.active::after {
-  display: none;
-}
-
-body.orient-vertical .tab.active {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-bottom: 0;
-  padding-top: 6px;
-  padding-bottom: 6px;
 }
 
 .tabs {
@@ -168,6 +181,62 @@ body.orient-vertical .tab.active {
 
 .tabs:empty {
   display: none;
+}
+
+/* Mobile-only overlay sidebar. Always present in the DOM (tabs.ts renders
+   the same list into both .tabs and .tab-sidebar so the data is in sync),
+   hidden by default. The mobile media query flips it to display: flex
+   when body.orient-vertical is set. On desktop the sidebar role is
+   played by the morphed .tabs element instead, so this stays hidden. */
+.tab-sidebar {
+  display: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--tab-sidebar-width);
+  z-index: 50;
+  padding: 8px 8px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.45);
+}
+
+/* Tab buttons inside the sidebar use the vertical-list look — same shape
+   as the desktop body.orient-vertical .tabs .tab rules, just scoped to
+   the sidebar element so the horizontal strip is unaffected. */
+.tab-sidebar .tab {
+  max-width: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+
+.tab-sidebar .tab .title {
+  max-width: none;
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+/* Drop the strip-only ornaments inside the sidebar context. */
+.tab-sidebar .tab:not(.active)::before,
+.tab-sidebar .tab.active::before,
+.tab-sidebar .tab.active::after {
+  display: none;
+}
+
+.tab-sidebar .tab.active {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
 
 .tab {
@@ -536,14 +605,13 @@ body.orient-vertical .tab.active {
   display: block;
   width: 100%;
   height: 100%;
-  /* Preserve the screencast frame's natural aspect ratio. Normally the frame
-     box and the image agree (fitFrame sizes the box to the remote viewport),
-     so this is a no-op. During a resize-handle drag the frame box follows
-     the cursor immediately while the screencast image lags by a tick or two
-     at the previous aspect — without `contain`, the image would visibly
-     squish/stretch until the next frame arrives. With `contain`, it stays
-     correctly proportioned and letterboxes against the .frame's black
-     background instead. */
+  /* Preserve the screencast frame's natural aspect ratio. Normally the
+     frame box and the image agree (fitFrame sizes the box to the remote
+     viewport), but between dispatching a setViewport and the first frame
+     at the new dims, the box can be one aspect and the lingering image
+     another. Without `contain`, that brief window would visibly squish or
+     stretch the image; with it, the image letterboxes against the .frame's
+     black background until the next frame arrives. */
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
@@ -769,16 +837,21 @@ body.out-of-focus .frame {
   display: none;
 }
 
-body.orient-vertical .sidebar-resize {
-  display: block;
-  position: fixed;
-  top: 1px; /* below body's top border */
-  bottom: 0;
-  left: calc(var(--tab-sidebar-width) - 3px);
-  width: 6px;
-  cursor: col-resize;
-  z-index: 30;
-  background: transparent;
+/* Drag handle only matters when the sidebar morphs into a layout-pushing
+   sidebar — on mobile vertical mode the overlay #tab-sidebar isn't
+   resizable, so the handle stays hidden there. */
+@media (min-width: 701px) {
+  body.orient-vertical .sidebar-resize {
+    display: block;
+    position: fixed;
+    top: 1px; /* below body's top border */
+    bottom: 0;
+    left: calc(var(--tab-sidebar-width) - 3px);
+    width: 6px;
+    cursor: col-resize;
+    z-index: 30;
+    background: transparent;
+  }
 }
 
 .sidebar-resize::before {
@@ -812,59 +885,156 @@ body.dragging-sidebar .toolbar {
   pointer-events: none;
 }
 
-/* Subtle resize affordance in the status bar's right edge — two opposing
-   diagonal arrows (up-left, down-right), drawn in the same stroke style as
-   the toolbar's back/forward icons. Doesn't overlap the page content. */
-.resize-handle {
+/* Viewport size buttons in the status bar's right edge. Match-size is
+   always visible (replaces the old drag-resize handle); desktop-size only
+   shows on narrow screens, where the trade-off it makes (tall content for
+   desktop layout) actually buys you something. */
+.vp-preset {
+  display: inline-flex;
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
+  outline: none;
   background: transparent;
   color: var(--fg-dim);
-  cursor: nwse-resize;
-  display: inline-flex;
+  cursor: pointer;
   align-items: center;
   justify-content: center;
-  opacity: 0.55;
+  opacity: 0.7;
   transition: opacity 120ms ease, color 120ms ease;
+  /* Suppress iOS Safari's grey tap highlight on press. */
+  -webkit-tap-highlight-color: transparent;
 }
 
-.resize-handle svg {
+.vp-preset:hover,
+.vp-preset:active,
+.vp-preset:focus {
+  opacity: 1;
+  color: var(--fg);
+  outline: none;
+}
+
+.vp-preset svg {
   display: block;
 }
 
-.resize-handle:hover,
-body.resizing .resize-handle {
-  opacity: 1;
-  color: var(--fg);
+/* Push the match-size button (and any trailing siblings) to the right edge
+   of the status bar. On wide screens it's the only preset visible, so this
+   gives it the right edge alone; on narrow screens the desktop-size button
+   shows up to its left and shifts the auto margin (rules below). */
+#vp-match-size {
+  margin-left: auto;
 }
 
-body.resizing {
-  /* Keep the resize cursor while the user drags off the 16px handle box. */
-  cursor: nwse-resize;
-}
-
-/* Floating "1280 × 800" readout shown just above the resize handle while
-   dragging. Anchored to the status bar's right edge. */
-.resize-readout {
-  position: absolute;
-  right: 8px;
-  bottom: calc(100% + 4px);
-  background: rgba(14, 16, 20, 0.92);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font: 11px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-variant-numeric: tabular-nums;
-  padding: 3px 6px;
-  border-radius: 4px;
-  pointer-events: none;
-  z-index: 6;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-.resize-readout[hidden] {
+#vp-desktop-size {
   display: none;
+}
+
+@media (max-width: 700px) {
+  .vp-preset {
+    /* Tap-target sized — Apple HIG min is 44×44, we get close enough at 40
+       without ballooning the status bar's right edge past the screencast. */
+    width: 40px;
+    height: 40px;
+  }
+
+  .vp-preset svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* Show desktop-size and move the auto margin to it so the cluster pushes
+     right as a pair. Final order: ...status pill, [auto gap], desktop,
+     match — match button on the far right where the thumb naturally lands. */
+  #vp-desktop-size {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  #vp-match-size {
+    margin-left: 0;
+  }
+
+  /* Mobile vertical mode: show the separate overlay sidebar (#tab-sidebar)
+     on top of the page, while leaving the horizontal tab strip visible
+     above. Unlike desktop vertical mode, .tabs isn't morphed — both the
+     strip and the sidebar render the same tab list (tabs.ts paints both
+     containers). The hamburger is hidden while the sidebar is open
+     (rule outside the media query); the user dismisses by tapping a
+     tab or tapping outside the sidebar (handled in main.ts). */
+  body.orient-vertical .tab-sidebar {
+    display: flex;
+  }
+}
+
+/* ── Coarse pointer (phone, tablet, touchscreen kiosk) ──────────────────────
+   First-pass mobile adjustments. Hides desktop-only chrome that depends on
+   precise pointing or doesn't fit, enlarges tap targets, and hands single-
+   finger gestures to the JS touch handler while leaving pinch-zoom to the
+   browser. The orient toggle is hidden here too — main.ts also forces
+   horizontal mode at startup, so the vertical sidebar layout never loads
+   on mobile. */
+@media (pointer: coarse) {
+  .sidebar-resize,
+  .cdp-endpoint,
+  .fps,
+  .hover-link,
+  #open-external {
+    display: none !important;
+  }
+
+  /* Tap-friendly nav buttons (Apple HIG suggests ≥44px; we get most of the
+     way there without ballooning the toolbar). */
+  .nav {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Hamburger gets a real tap target on coarse pointers without growing the
+     visible glyph — keeps the toolbar visually unchanged. */
+  .orient-toggle {
+    width: 36px;
+    height: 36px;
+    top: 4px;
+  }
+
+  /* Taller status bar on mobile so the viewport-preset buttons get real
+     tap-target height. The buttons themselves are sized inside the
+     .vp-preset rules above. */
+  .statusbar {
+    min-height: 44px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    padding-right: 2px;
+  }
+
+  .tab {
+    padding: 8px 8px 8px 12px;
+  }
+
+  .tab .close {
+    padding: 4px 6px;
+    min-width: 22px;
+  }
+
+  /* Single-finger pan/scroll is claimed by the touch handler; pinch-zoom on
+     the bridge UI itself stays available. Without this, browsers would
+     intercept single-finger drags as native scrolls and our handler would
+     never see them. */
+  .frame {
+    touch-action: pinch-zoom;
+  }
+
+  /* iOS / Android refuse to pop the OS keyboard for inputs that are clipped
+     to a 0×0 rect. Drop the clip on coarse pointers and rely on the 1×1
+     size + z-index:-1 to keep the helper visually invisible. The helper
+     is still focused via tap-on-frame inside the touch gesture, so the
+     keyboard surfaces from a real user action (browsers reject keyboard
+     pop from non-gesture focus calls). */
+  .paste-helper {
+    clip: auto;
+    opacity: 0;
+  }
 }
