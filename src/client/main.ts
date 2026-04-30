@@ -51,6 +51,13 @@ const els = {
 let viewport: Viewport = { width: 1280, height: 800, deviceScaleFactor: 1 };
 let isVisible = true;
 let activeTabId: string | null = null;
+// Mirrors whether the remote has an editable input/textarea focused, kept
+// in sync with the latest selection message. Drives helper focus on touch:
+// on coarse-pointer devices we only want the OS keyboard up when there's
+// somewhere to type, not on every tap.
+let remoteHasField = false;
+const isCoarsePointer =
+  typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
 function fitFrame() {
   // Sets the framed image element to the largest size that fits the stage,
@@ -150,6 +157,19 @@ function handleServerMessage(msg: ServerMessage) {
       return;
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
+      remoteHasField = !!msg.field;
+      // On coarse-pointer devices, sync the OS keyboard with the remote's
+      // focused-field state. iOS leaves a transient user-activation window
+      // open for ~5s after a tap, so a selection message that arrives
+      // ~100ms later (the cdp-session selection-poll throttle) can still
+      // pop the keyboard from a programmatic focus call. Blur on no-field
+      // dismisses the keyboard when the user taps a non-editable area.
+      // Desktop is unchanged — the helper stays focused unconditionally
+      // there because it's the clipboard anchor.
+      if (isCoarsePointer) {
+        if (msg.field) pasteHelper.focus();
+        else pasteHelper.blur();
+      }
       return;
     case "findResult":
       findBar.setResult(msg.current, msg.total);
@@ -180,6 +200,13 @@ const pasteHelper = setupPasteHelper({
   isUrlBarFocused: () => document.activeElement === els.url,
   debug: true,
 });
+// Re-anchor focus on the paste helper after another input gives it up
+// (URL bar, find bar). On coarse pointers we suppress the call when the
+// remote isn't on an editable field, so dismissing the URL bar on mobile
+// doesn't immediately re-pop the OS keyboard via the helper.
+function refocusPasteHelper() {
+  if (!isCoarsePointer || remoteHasField) pasteHelper.focus();
+}
 const tabs = setupTabs({
   tabsEl: els.tabs,
   sidebarEl: els.tabSidebar,
@@ -200,7 +227,7 @@ const toolbar = setupToolbar({
   url: els.url,
   openExternal: els.openExternal,
   send: bridge.send,
-  onUrlBlur: () => pasteHelper.focus(),
+  onUrlBlur: refocusPasteHelper,
 });
 const findBar = setupFindBar({
   bar: els.findBar,
@@ -210,7 +237,7 @@ const findBar = setupFindBar({
   nextBtn: els.findNext,
   closeBtn: els.findClose,
   send: bridge.send,
-  onClose: () => pasteHelper.focus(),
+  onClose: refocusPasteHelper,
 });
 bridge.connect();
 
@@ -387,8 +414,13 @@ mouseTarget.addEventListener("mouseleave", () => {
 
 // Re-anchor focus once at startup so the first keystroke after page load
 // already lands on the paste-helper. Toolbar handles the URL-bar blur path
-// via its onUrlBlur callback.
-window.addEventListener("load", () => pasteHelper.focus());
+// via its onUrlBlur callback. Skipped on coarse pointers — focusing the
+// hidden helper at load on mobile would mark it as the active element
+// before any field exists on the remote, which suppresses the keyboard
+// pop later when the selection handler calls focus() on it again.
+window.addEventListener("load", () => {
+  if (!isCoarsePointer) pasteHelper.focus();
+});
 
 // Drag-aware pointer forwarding. We send distinct mousedown / mouseup so the
 // remote sees press at one point and release at another — that's what makes
@@ -419,7 +451,7 @@ function mouseButtonsFromBits(bits: number): MouseButton[] {
 
 mouseTarget.addEventListener("mousedown", (e) => {
   e.preventDefault();
-  pasteHelper.focus();
+  refocusPasteHelper();
   mouseDbg("mousedown-event", { button: e.button, isVisible, detail: e.detail });
   if (!isVisible) {
     bridge.send({ type: "refocus" });
@@ -524,7 +556,9 @@ setupTouch({
     const local = els.frame.clientWidth;
     return local > 0 ? viewport.width / local : 1;
   },
-  focusPasteHelper: () => pasteHelper.focus(),
+  focusPasteHelperIfFieldFocused: () => {
+    if (remoteHasField) pasteHelper.focus();
+  },
 });
 
 // ── Viewport size buttons ────────────────────────────────────────────────────

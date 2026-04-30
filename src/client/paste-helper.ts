@@ -41,6 +41,10 @@ export interface RemoteState {
 
 export interface PasteHelper {
   focus: () => void;
+  // Drop the helper's focus. Used on mobile to dismiss the OS keyboard
+  // when the remote no longer has an editable field focused (so tapping
+  // a non-editable area after typing in a field hides the keyboard).
+  blur: () => void;
   setRemoteState: (state: RemoteState) => void;
 }
 
@@ -324,5 +328,5 @@ export function setupPasteHelper(opts: PasteHelperOptions): PasteHelper {
     dbg("copy-event", { start, end, selectedLen: selected.length, selected });
   });
 
-  return { focus, setRemoteState };
+  return { focus, blur: () => el.blur(), setRemoteState };
 }

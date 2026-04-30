@@ -30,14 +30,20 @@ export interface TouchOptions {
   // i.e. `viewport.width / frame.clientWidth`. Used to scale finger-drag
   // deltas into remote-pixel scroll deltas.
   getRemoteToLocalScale: () => number;
-  // Called after a tap so the OS keyboard can pop for typing.
-  focusPasteHelper: () => void;
+  // Called after a tap to (re-)focus the paste helper, but only when the
+  // remote currently has an editable field focused. Skipping unconditional
+  // focus avoids popping the OS keyboard on every tap into non-editable
+  // page content, which iOS otherwise treats as a real input focus.
+  // Mobile users can still long-press the screencast image to use iOS's
+  // native text selection, which doesn't go through the paste helper.
+  focusPasteHelperIfFieldFocused: () => void;
 }
 
 const TAP_THRESHOLD_PX = 10;
 
 export function setupTouch(opts: TouchOptions): void {
-  const { frame, send, pointToViewport, getRemoteToLocalScale, focusPasteHelper } = opts;
+  const { frame, send, pointToViewport, getRemoteToLocalScale, focusPasteHelperIfFieldFocused } =
+    opts;
 
   let activeId: number | null = null;
   let startX = 0;
@@ -125,13 +131,18 @@ export function setupTouch(opts: TouchOptions): void {
     }
     if (!scrolling) {
       // Tap — fire press + release at the start coords so the remote sees
-      // a real click. Focus the paste helper in the same gesture so iOS
-      // associates the focus with a user action and pops up the keyboard
-      // (browsers reject focus → keyboard if it isn't gesture-driven).
+      // a real click. The paste helper only re-focuses if the remote is
+      // already on an editable field; that path covers tapping the same
+      // input twice. The first-tap-on-a-field path is handled by the
+      // selection message handler in main.ts: when the click focuses an
+      // input on the remote, the server emits a selection message with
+      // `field`, and main.ts focuses the helper inside the transient
+      // user-activation window iOS leaves open after the tap so the
+      // keyboard still pops.
       const { x, y } = pointToViewport({ clientX: startX, clientY: startY });
       send({ type: "mousedown", x, y, button: "left", clickCount: 1 });
       send({ type: "mouseup", x, y, button: "left", clickCount: 1 });
-      focusPasteHelper();
+      focusPasteHelperIfFieldFocused();
     }
     scrolling = false;
   });
