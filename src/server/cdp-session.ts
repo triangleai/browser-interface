@@ -60,10 +60,12 @@ type SelectionPayload = {
     selectionStart: number;
     selectionEnd: number;
   };
+  editable?: boolean;
 };
 
 function selectionPayloadEqual(a: SelectionPayload, b: SelectionPayload): boolean {
   if (a.text !== b.text) return false;
+  if (!!a.editable !== !!b.editable) return false;
   const af = a.field;
   const bf = b.field;
   if (!af && !bf) return true;
@@ -75,8 +77,14 @@ function selectionPayloadEqual(a: SelectionPayload, b: SelectionPayload): boolea
   );
 }
 
-// Runs in the page's main world. Returns either a `field` payload (when the
-// focused element is an <input> / <textarea>) or just the selection text.
+// Runs in the page's main world. Returns the current selection text, plus:
+//   - `field` (value + caret range) when the focused element is an
+//     <input>/<textarea> — drives the desktop helper's value mirror.
+//   - `editable` (boolean) for any editable focus, including
+//     contenteditable elements that don't fit the field model. Drives
+//     mobile OS-keyboard pop on the client (it focuses the paste helper
+//     when an editable target is focused, regardless of whether we have
+//     a usable value/selection mirror for it).
 // JSON-encoded so we can ship a structured value through Runtime.evaluate's
 // returnByValue without dealing with object-graph serialization.
 const SELECTION_PROBE = `JSON.stringify((() => {
@@ -85,10 +93,18 @@ const SELECTION_PROBE = `JSON.stringify((() => {
     const v = ae.value || '';
     const s = ae.selectionStart || 0;
     const e = ae.selectionEnd || 0;
-    return { text: v.slice(s, e), field: { value: v, selectionStart: s, selectionEnd: e } };
+    return {
+      text: v.slice(s, e),
+      field: { value: v, selectionStart: s, selectionEnd: e },
+      editable: true,
+    };
   }
   const sel = document.getSelection();
-  return { text: sel ? sel.toString() : '' };
+  const text = sel ? sel.toString() : '';
+  // isContentEditable returns true for contenteditable subtrees,
+  // including inherited contenteditable="true" from an ancestor.
+  const editable = !!(ae && ae.isContentEditable);
+  return editable ? { text, editable: true } : { text };
 })())`;
 
 // Builds an in-page expression for find-on-page. Walks visible text once per

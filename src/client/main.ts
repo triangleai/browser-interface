@@ -157,7 +157,12 @@ function handleServerMessage(msg: ServerMessage) {
       return;
     case "selection":
       pasteHelper.setRemoteState({ text: msg.text, field: msg.field });
-      remoteHasField = !!msg.field;
+      // `editable` is the superset signal: input/textarea (which also set
+      // `field`) AND contenteditable subtrees (which don't, because their
+      // value/selection model doesn't fit the field tuple). Track this
+      // separately so the mobile keyboard pops for ChatGPT-style
+      // contenteditable composers, not just plain inputs.
+      remoteHasField = !!msg.editable;
       // On coarse-pointer devices, sync the OS keyboard with the remote's
       // focused-field state. iOS leaves a transient user-activation window
       // open for ~5s after a tap, so a selection message that arrives
@@ -167,7 +172,7 @@ function handleServerMessage(msg: ServerMessage) {
       // Desktop is unchanged — the helper stays focused unconditionally
       // there because it's the clipboard anchor.
       if (isCoarsePointer) {
-        if (msg.field) pasteHelper.focus();
+        if (remoteHasField) pasteHelper.focus();
         else pasteHelper.blur();
       }
       return;
