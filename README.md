@@ -48,7 +48,7 @@ The first run opens `chrome://inspect/#remote-debugging` for you (via
 AppleScript on macOS). Tick the checkbox, click `Allow`, and the bridge attaches
 within a few seconds. Future runs skip the prompt — the toggle is sticky.
 
-Then open <http://127.0.0.1:8787>.
+Then open <http://127.0.0.1:5252>.
 
 ### Other connection modes
 
@@ -79,7 +79,7 @@ browser/face --port 9222
 | `--port <port>` | CDP port — set this to skip auto-discovery |
 | `--no-auto-discover` | Disable discovery; require `--target` or `--port` |
 | `--listen-host <host>` | UI bind host (default `127.0.0.1`) |
-| `--listen-port, -l <port>` | UI bind port (default `8787`) |
+| `--listen-port, -l <port>` | UI bind port (default `5252`) |
 | `--width <px>` `--height <px>` | Override viewport via `Emulation.setDeviceMetricsOverride` |
 | `--max-fps <n>` | Cap emitted frames per second (default `30`; `0` disables) |
 | `--format <png\|jpeg>` | Screenshot format (default `jpeg`) |
@@ -126,7 +126,7 @@ import { startBridge } from "browserface";
 const handle = await startBridge({
   host: "127.0.0.1",
   port: 9222,
-  listenPort: 8787,
+  listenPort: 5252,
 });
 // later:
 await handle.close();
