@@ -26,18 +26,17 @@ is a smooth handoff rather than a context switch.
 - **Viewport presets** — match-window, desktop-size, or custom width / height
 - **Touch + mobile** — touch input plus an overlay sidebar on coarse-pointer devices
 - **Frame-based screencast** — periodic JPEG / PNG via `Page.startScreencast`, capped to 30 fps by default
-- **Three connection modes** — dedicated agent profile (default), `--discover` for your daily-driver Chrome, or explicit `--target` / `--port`
 - **Sharing** — `browser/share` exposes the bridge via ngrok with required auth (oauth, oidc, cidr-allow, …); `browser/config` persists default flags
-- **Programmatic** — `BrowserSession` for headless / agent use without the HTTP UI; full TypeScript types for every wire message
 
 ## How it works
 
 ```
-Chromium (anywhere, headless OK)
+Chrome/Chromium (anywhere, headless OK)
   ↓ CDP WebSocket
 Browser Session (chrome-remote-interface)
-  ↓ extracts state (Page.captureScreenshot, Runtime, DOM, page events)
-  ↓ dispatches actions (Input.dispatchMouseEvent / dispatchKeyEvent / insertText)
+  ↓ extracts state (Page.startScreencast, Runtime, Target, navigation events)
+  ↓ dispatches actions (Input.dispatchMouseEvent / dispatchKeyEvent / insertText,
+                        Page.navigate, Target.createTarget)
 Bridge (HTTP + WebSocket)
   ↓ JSON protocol
 Client UI (any browser) — and/or agents
