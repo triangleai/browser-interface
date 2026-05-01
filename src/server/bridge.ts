@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 import { BrowserSession, type BrowserSessionOptions } from "./cdp-session.js";
-import { discoverChrome } from "./discover.js";
+import { discoverChrome, findAgentProfile } from "./discover.js";
 
 export interface BridgeOptions extends BrowserSessionOptions {
   // HTTP/WebSocket bind address.
@@ -13,10 +13,16 @@ export interface BridgeOptions extends BrowserSessionOptions {
   listenPort?: number;
   // Override path to client static assets (defaults to bundled dist/client).
   staticDir?: string;
-  // If true (default), and neither `target` nor `port` is set, discover the
-  // user's already-running Chrome via DevToolsActivePort and prompt them via
-  // chrome://inspect when remote-debugging isn't enabled yet.
+  // If true (default), and neither `target` nor `port` is set, attach to
+  // a Chrome we discover. Default discovery probes the agent profile only
+  // (~/.browserface/chrome, brought up by `browser/start`); set
+  // `discoverDailyDriver` to fall back to the chrome://inspect-toggle path
+  // against the daily-driver Chrome instead.
   autoDiscover?: boolean;
+  // Opt-in: probe daily-driver profile dirs via the chrome://inspect toggle
+  // flow instead of the agent profile. Off by default — bypasses the agent's
+  // privacy isolation, so it's an explicit choice.
+  discoverDailyDriver?: boolean;
 }
 
 const MIME: Record<string, string> = {
@@ -46,12 +52,29 @@ export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandl
   const sessionOpts: BrowserSessionOptions = { ...opts };
   let cdpEndpoint = "";
   if (!sessionOpts.target && !sessionOpts.port && (opts.autoDiscover ?? true)) {
-    const ep = await discoverChrome({ log: (m) => console.log(m) });
-    sessionOpts.target = ep.browserWsUrl;
-    cdpEndpoint = `${ep.host}:${ep.port}`;
-    console.log(
-      `[browserface] discovered Chrome at ${ep.host}:${ep.port} (profile: ${ep.profileDir})`,
-    );
+    if (opts.discoverDailyDriver) {
+      const ep = await discoverChrome({ log: (m) => console.log(m) });
+      sessionOpts.target = ep.browserWsUrl;
+      cdpEndpoint = `${ep.host}:${ep.port}`;
+      console.log(
+        `[browserface] discovered daily-driver Chrome at ${ep.host}:${ep.port} (profile: ${ep.profileDir})`,
+      );
+    } else {
+      const ep = await findAgentProfile();
+      if (!ep) {
+        throw new Error(
+          "agent Chrome is not running.\n" +
+            "  browser/face defaults to the dedicated agent profile at ~/.browserface/chrome.\n" +
+            "  Run `browser/start` to bring it up (or invoke browser/face — its wrapper does this for you),\n" +
+            "  or pass --discover to attach to your daily-driver Chrome instead.",
+        );
+      }
+      sessionOpts.target = ep.browserWsUrl;
+      cdpEndpoint = `${ep.host}:${ep.port}`;
+      console.log(
+        `[browserface] attached to agent profile at ${ep.host}:${ep.port}`,
+      );
+    }
   } else if (sessionOpts.host && sessionOpts.port) {
     cdpEndpoint = `${sessionOpts.host}:${sessionOpts.port}`;
   } else if (sessionOpts.target) {

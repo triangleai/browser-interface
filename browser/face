@@ -2,8 +2,11 @@
 # Thin wrapper around the underlying npm scripts. Lets users run
 # `browser/face` instead of remembering `npm start --` etc.
 #
-#   browser/face                     start bridge with auto-discovery
-#   browser/face --port 9222         start bridge with CLI flags
+#   browser/face                     start bridge against the dedicated agent
+#                                    Chrome profile (auto-runs browser/start)
+#   browser/face --discover          attach to the daily-driver Chrome via
+#                                    chrome://inspect-toggle flow
+#   browser/face --port 9222         attach to a specific CDP port
 #   browser/face dev [...flags]      dev mode (rebuild on changes)
 #   browser/face build               build server + client
 #   browser/face typecheck           tsc --noEmit
@@ -36,10 +39,25 @@ merge_bridge_args() {
   done < <("$HERE/config" merge bridge -- "$@")
 }
 
-# No args, or first arg is a flag → bridge with auto-discovery.
+# In default mode (no --discover, no explicit endpoint), bring up the agent
+# Chrome profile via browser/start before npm start. Idempotent: if Chrome
+# is already running with that profile, this is a fast no-op. Skipped when
+# the user explicitly opted into a different attachment path.
+ensure_agent_chrome_if_default() {
+  for arg in "$@"; do
+    case "$arg" in
+      --discover|--target|--target=*|-t|--port|--port=*|--host|--host=*)
+        return 0 ;;
+    esac
+  done
+  "$HERE/start" >/dev/null
+}
+
+# No args, or first arg is a flag → bridge.
 if [[ $# -eq 0 || "${1:0:1}" == "-" ]]; then
   ensure_built
   merge_bridge_args "$@"
+  ensure_agent_chrome_if_default "${bridge_args[@]+"${bridge_args[@]}"}"
   exec npm start -- "${bridge_args[@]+"${bridge_args[@]}"}"
 fi
 
@@ -48,11 +66,13 @@ case "$cmd" in
   start)
     ensure_built
     merge_bridge_args "$@"
+    ensure_agent_chrome_if_default "${bridge_args[@]+"${bridge_args[@]}"}"
     exec npm start -- "${bridge_args[@]+"${bridge_args[@]}"}"
     ;;
   dev)
     [[ -d node_modules ]] || npm install
     merge_bridge_args "$@"
+    ensure_agent_chrome_if_default "${bridge_args[@]+"${bridge_args[@]}"}"
     exec npm run dev -- "${bridge_args[@]+"${bridge_args[@]}"}"
     ;;
   build|build:server|build:client|typecheck|clean)
@@ -60,7 +80,7 @@ case "$cmd" in
     exec npm run "$cmd" -- "$@"
     ;;
   -h|--help|help)
-    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *)
     echo "Unknown command: $cmd" >&2

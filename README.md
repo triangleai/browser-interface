@@ -36,30 +36,48 @@ cd browserface
 browser/face
 ```
 
-By default browserface attaches to your **already-running daily-driver
-Chrome**. Same trick browser-harness uses: Chrome has a per-profile sticky
-toggle at `chrome://inspect/#remote-debugging` that, once ticked, makes Chrome
-auto-enable CDP on every launch and write the dynamic port to
-`<profile>/DevToolsActivePort`. browserface reads that file, probes the
-port, and connects via the browser-level WebSocket — no `--remote-debugging-port`
-launch flag, no separate Chrome instance.
-
-The first run opens `chrome://inspect/#remote-debugging` for you (via
-AppleScript on macOS). Tick the checkbox, click `Allow`, and the bridge attaches
-within a few seconds. Future runs skip the prompt — the toggle is sticky.
+By default browserface starts and attaches to its **own dedicated Chrome
+profile** at `~/.browserface/chrome`, separate from your daily-driver
+Chrome. The `browser/face` wrapper auto-runs `browser/start` to bring it
+up — no setup, no popups, no overlap with your everyday browsing. The
+profile persists, so once you sign into Gmail / Slack / etc. in it,
+those sessions stick around for the next run.
 
 Then open <http://127.0.0.1:8768>.
+
+Why a dedicated profile by default: Chrome only suppresses the per-connect
+"Allow remote debugging" popup when the debug port was opened at launch
+via `--remote-debugging-port`. Attaching to a daily-driver Chrome via the
+`chrome://inspect`-toggle path triggers that popup on every connect —
+fine for the human ad-hoc use case, painful for autonomous agents. The
+agent-profile default sidesteps it entirely. As a bonus, the agent's
+blast radius is scoped to one profile, so bank tabs / work email / etc.
+in your daily-driver Chrome are simply not reachable.
+
+### Attach to your daily-driver Chrome instead
+
+Pass `--discover` to use the original `chrome://inspect`-toggle flow
+against your everyday Chrome:
+
+```sh
+browser/face --discover
+```
+
+The first run opens `chrome://inspect/#remote-debugging` for you (via
+AppleScript on macOS). Tick the checkbox, click `Allow`, and the bridge
+attaches within a few seconds. Future runs skip the prompt — the toggle
+is sticky.
 
 ### Other connection modes
 
 ```sh
-# Skip discovery and connect to a specific CDP port (e.g. headless container):
+# Specific CDP port (e.g. headless container):
 browser/face --host 127.0.0.1 --port 9222
 
-# Or a specific WS URL (page-level or browser-level):
+# Specific WS URL (page-level or browser-level):
 browser/face --target ws://127.0.0.1:9222/devtools/browser/<id>
 
-# Print connection commands for an already-running Chrome:
+# Print connection commands for a daily-driver Chrome on this or another machine:
 browser/find
 
 # Headless Chrome for testing:
@@ -69,42 +87,29 @@ browser/find
 browser/face --port 9222
 ```
 
-### Dedicated agent profile
+### The agent profile in detail
 
-For autonomous agents, the `chrome://inspect`-toggle path is awkward —
-Chrome treats every connect as ad-hoc debugging and pops a confirmation
-dialog. The fix is to launch Chrome ourselves with `--remote-debugging-port`
-at startup; the popup goes away when the port was opened intentionally.
-
-`browser/start` does this with a dedicated profile so the daily-driver
-Chrome stays untouched:
+`browser/start` is the launcher behind the default mode. Idempotent — run
+it directly to bring up the agent Chrome without starting the bridge:
 
 ```sh
-browser/start    # idempotent: launches the agent profile if not already running
-browser/face     # auto-discovers the agent profile and connects
+browser/start    # launches Chrome with --user-data-dir=~/.browserface/chrome --remote-debugging-port=...
+                 # prints the CDP WebSocket URL on stdout
 ```
 
-`browser/face`'s discovery probes the agent profile (`~/.browserface/chrome`)
-first, before any daily-driver profile, so once `browser/start` is running
-plain `browser/face` Just Works — no `--target` plumbing.
-
-The profile lives at `~/.browserface/chrome` and persists across launches —
-sign into Gmail/Slack/etc. once in that profile and the agent reuses those
-sessions on every connect. Daily-driver Chrome (and its tabs, history,
-extensions) is never touched.
-
 Binary lookup, in order: `--chromium-binary <path>` → system Chrome
-(`/Applications/Google Chrome.app` on macOS, `google-chrome`/`chromium` on
-Linux) → `$PLAYWRIGHT_BROWSERS_PATH` if set → default Playwright cache
+(`/Applications/Google Chrome.app` on macOS, `google-chrome`/`chromium`
+on Linux) → `$PLAYWRIGHT_BROWSERS_PATH` if set → default Playwright cache
 (`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on
-Linux). Run `npx playwright install chromium` if neither system Chrome nor
-a Playwright cache is present.
+Linux). Run `npx playwright install chromium` if neither system Chrome
+nor a Playwright cache is present.
 
 ### CLI flags
 
 | Flag | Description |
 | --- | --- |
-| _(none)_ | Auto-discover via `DevToolsActivePort` (default) |
+| _(none)_ | Attach to the agent profile (default; `browser/face` wrapper auto-runs `browser/start`) |
+| `--discover` | Attach to the daily-driver Chrome via the `chrome://inspect`-toggle flow instead |
 | `--target, -t <url>` | Full CDP WebSocket URL (browser- or page-level) |
 | `--host <host>` | CDP host (default `127.0.0.1`) |
 | `--port <port>` | CDP port — set this to skip auto-discovery |

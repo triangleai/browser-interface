@@ -10,15 +10,14 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
-// Profile directories Chrome / Edge / Brave / Chromium write into. First-match wins.
-// The dedicated agent profile (`~/.browserface/chrome`, written by `browser/start`)
-// comes first so an agent-launched Chrome is preferred over the daily-driver if
-// both are running.
+// Profile directories the daily-driver Chrome / Edge / Brave / Chromium write
+// into. First-match wins. The agent profile (~/.browserface/chrome) is NOT in
+// this list — discovery against it is intentionally a separate code path
+// (findAgentProfile / discoverAgentChrome) so a stopped agent Chrome can never
+// silently fall through to attaching the daily-driver.
 function profileDirs(): string[] {
   const home = homedir();
   return [
-    // Agent-managed profile (browser/start)
-    join(home, ".browserface/chrome"),
     // macOS
     join(home, "Library/Application Support/Google/Chrome"),
     join(home, "Library/Application Support/Microsoft Edge"),
@@ -82,10 +81,26 @@ export async function readDevToolsActivePort(profile: string): Promise<DevToolsE
 }
 
 export async function findFirstActivePort(): Promise<DevToolsEndpoint | null> {
+  // Probe each candidate's port — Chrome doesn't clean up DevToolsActivePort on
+  // exit, so a stale file from a dead profile would otherwise shadow a live
+  // profile listed later.
   for (const dir of profileDirs()) {
     const ep = await readDevToolsActivePort(dir);
-    if (ep) return ep;
+    if (ep && (await probePort(ep.host, ep.port))) return ep;
   }
+  return null;
+}
+
+// The dedicated agent profile that `browser/start` launches Chrome into.
+export function agentProfileDir(): string {
+  return join(homedir(), ".browserface/chrome");
+}
+
+// Probe the agent profile only. Returns null if Chrome isn't currently
+// running there (file missing or stale).
+export async function findAgentProfile(): Promise<DevToolsEndpoint | null> {
+  const ep = await readDevToolsActivePort(agentProfileDir());
+  if (ep && (await probePort(ep.host, ep.port))) return ep;
   return null;
 }
 
@@ -167,24 +182,23 @@ export async function discoverChrome(opts: DiscoverOptions = {}): Promise<DevToo
   const deadlineMs = Date.now() + (opts.timeoutMs ?? 90_000);
   const dirs = opts.profileDirs ?? profileDirs();
 
+  // Probe each candidate's port — Chrome doesn't clean up DevToolsActivePort on
+  // exit, so a stale file would otherwise shadow a live profile listed later.
   const readAny = async (): Promise<DevToolsEndpoint | null> => {
     for (const d of dirs) {
       const ep = await readDevToolsActivePort(d);
-      if (ep) return ep;
+      if (ep && (await probePort(ep.host, ep.port))) return ep;
     }
     return null;
   };
 
-  // 1. Initial read.
+  // 1. Initial read — returns only a live endpoint, or null.
   let endpoint = await readAny();
+  if (endpoint) return endpoint;
 
-  // 2. If we have an endpoint and the port is live, we're done.
-  if (endpoint && (await probePort(endpoint.host, endpoint.port))) {
-    return endpoint;
-  }
-
-  // 3. Either no DevToolsActivePort, or a stale one (port not listening).
-  //    Both cases mean the per-profile sticky toggle isn't currently in effect.
+  // 2. No live port. Per-profile sticky toggle isn't in effect — escalate by
+  //    opening chrome://inspect so the user can tick it (or fail loudly if the
+  //    caller asked us not to).
   if (autoOpen) {
     log(
       "[browserface] enabling Chrome remote-debugging — opening chrome://inspect/#remote-debugging.\n" +
@@ -192,21 +206,19 @@ export async function discoverChrome(opts: DiscoverOptions = {}): Promise<DevToo
         "  (This setting sticks per-profile, so subsequent runs won't need it.)",
     );
     await openChromeInspect();
-  } else if (!endpoint) {
+  } else {
     throw new DiscoveryError(
       "No Chrome with remote-debugging enabled found.",
       "Open chrome://inspect/#remote-debugging in your Chrome and tick the checkbox, or pass --target / --port explicitly.",
     );
   }
 
-  // 4. Poll: re-read DevToolsActivePort (Chrome rewrites it on enable) and probe
-  //    the port until something comes up or we hit the deadline.
+  // 3. Poll: re-read DevToolsActivePort (Chrome rewrites it on enable) until
+  //    a live endpoint shows up or the deadline expires.
   let lastLogged = 0;
   while (Date.now() < deadlineMs) {
     endpoint = await readAny();
-    if (endpoint && (await probePort(endpoint.host, endpoint.port))) {
-      return endpoint;
-    }
+    if (endpoint) return endpoint;
     const now = Date.now();
     if (now - lastLogged > 5_000) {
       log("[browserface] waiting for remote-debugging port to come up…");

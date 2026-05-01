@@ -13,6 +13,7 @@ interface CliArgs {
   format?: "png" | "jpeg";
   quality?: number;
   noAutoDiscover?: boolean;
+  discover?: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -65,6 +66,9 @@ function parseArgs(argv: string[]): CliArgs {
       case "--no-auto-discover":
         out.noAutoDiscover = true;
         break;
+      case "--discover":
+        out.discover = true;
+        break;
       case "--help":
       case "-h":
         printHelp();
@@ -84,17 +88,19 @@ function printHelp() {
 Usage:
   browserface [options]
 
-By default, browserface discovers your already-running Chrome by reading
-DevToolsActivePort from each known profile directory (the agent profile at
-~/.browserface/chrome — if started via browser/start — is checked first).
-If none is enabled yet, it opens chrome://inspect/#remote-debugging so you
-can tick the sticky toggle.
+By default, browserface attaches to its dedicated agent Chrome profile
+(~/.browserface/chrome). The browser/face wrapper auto-runs browser/start
+to bring it up; running this binary directly errors if it's not already
+live. Pass --discover to attach to your daily-driver Chrome instead via
+the chrome://inspect-toggle flow.
 
 CDP target (skips auto-discovery):
   --target, -t <url>       Full CDP WebSocket URL (browser- or page-level)
   --host <host>            CDP host (default 127.0.0.1)
   --port <port>            CDP port (no default — set this to skip discovery)
   --no-auto-discover       Fail instead of running auto-discovery
+  --discover               Attach to the daily-driver Chrome via chrome://inspect
+                           toggle (default: agent profile only)
 
 Server:
   --listen-host <host>     HTTP/WS bind host (default 127.0.0.1)
@@ -128,6 +134,7 @@ async function main() {
     opts.viewport = { width: args.width, height: args.height };
   }
   if (args.noAutoDiscover) opts.autoDiscover = false;
+  if (args.discover) opts.discoverDailyDriver = true;
 
   const handle = await startBridge(opts);
 
