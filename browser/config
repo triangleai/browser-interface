@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# browser/config — manage persistent browserface configuration in ~/.browserface
+#
+# Subcommands:
+#   browser/config auth set <ngrok auth flags...>   Save default auth flags for browser/share
+#   browser/config auth show                         Print current value (or "(unset)")
+#   browser/config auth clear                        Remove the saved value
+#
+# Storage: each domain gets its own file at ~/.browserface/<domain>. The auth
+# file holds a single line — the same flag string you'd otherwise pass to
+# browser/share — and is consulted automatically when no auth flag is on the
+# CLI.
+set -euo pipefail
+
+CONFIG_DIR="${HOME}/.browserface"
+
+usage() {
+  cat <<'EOF'
+browser/config — manage persistent browserface configuration
+
+Usage:
+  browser/config auth set <ngrok auth flags>
+  browser/config auth show
+  browser/config auth clear
+
+Examples:
+  browser/config auth set --oauth google --oauth-allow-email you@example.com
+  browser/config auth set --cidr-allow 203.0.113.0/24
+  browser/config auth show
+  browser/config auth clear
+
+Storage: ~/.browserface/<domain>.
+EOF
+}
+
+# Same auth-flag set browser/share validates — keeps the two in sync.
+has_auth_flag() {
+  for arg in "$@"; do
+    case "$arg" in
+      --oauth|--oauth=*|--oidc|--oidc=*|--cidr-allow|--cidr-allow=*|\
+      --mutual-tls-cas|--mutual-tls-cas=*|\
+      --traffic-policy-file|--traffic-policy-file=*|--auth-disabled)
+        return 0 ;;
+    esac
+  done
+  return 1
+}
+
+cmd_auth_set() {
+  if [[ $# -eq 0 ]]; then
+    echo "browser/config auth set: requires at least one auth flag" >&2
+    echo "  e.g. browser/config auth set --oauth google --oauth-allow-email you@example.com" >&2
+    echo "       browser/config auth set --auth-disabled  (no auth, anyone with the URL)" >&2
+    exit 1
+  fi
+  if ! has_auth_flag "$@"; then
+    echo "browser/config auth set: no recognized auth flag in arguments" >&2
+    echo "  Valid: --oauth, --oidc, --cidr-allow, --mutual-tls-cas, --traffic-policy-file, --auth-disabled" >&2
+    exit 1
+  fi
+  mkdir -p "$CONFIG_DIR"
+  printf '%s\n' "$*" > "$CONFIG_DIR/auth"
+  echo "browser/config: saved auth = $*" >&2
+}
+
+cmd_auth_show() {
+  if [[ -s "$CONFIG_DIR/auth" ]]; then
+    cat "$CONFIG_DIR/auth"
+  else
+    echo "(unset)"
+  fi
+}
+
+cmd_auth_clear() {
+  if [[ -f "$CONFIG_DIR/auth" ]]; then
+    rm "$CONFIG_DIR/auth"
+    echo "browser/config: cleared auth" >&2
+  else
+    echo "browser/config: auth was already unset" >&2
+  fi
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 0
+fi
+
+case "$1" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  auth)
+    shift
+    if [[ $# -eq 0 ]]; then
+      echo "browser/config auth: missing subcommand (set|show|clear)" >&2
+      exit 1
+    fi
+    sub="$1"; shift
+    case "$sub" in
+      set)   cmd_auth_set "$@" ;;
+      show)  cmd_auth_show ;;
+      clear) cmd_auth_clear ;;
+      *)
+        echo "browser/config auth: unknown subcommand '$sub' (use set|show|clear)" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    echo "browser/config: unknown domain '$1'" >&2
+    usage
+    exit 1
+    ;;
+esac

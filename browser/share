@@ -14,13 +14,14 @@
 # pass --auth-disabled explicitly. Whoever loads the URL drives your
 # browser.
 #
-# To set a default auth policy that every invocation inherits, export
-# BROWSERFACE_AUTH with the flags you'd otherwise pass on the CLI, e.g.:
+# To set a default auth policy that every invocation inherits, run:
 #
-#   export BROWSERFACE_AUTH="--oauth google --oauth-allow-email you@example.com"
+#   browser/config auth set --oauth google --oauth-allow-email you@example.com
 #
-# Any auth-related flag (or --auth-disabled) on the CLI suppresses the
-# env-var fallback for that invocation, so per-task overrides still work.
+# That writes the flags to ~/.browserface/auth, which browser/share reads
+# whenever no auth-related flag is on the CLI. Any auth flag (or
+# --auth-disabled) on the CLI suppresses the file fallback for that
+# invocation, so per-task overrides still work.
 set -euo pipefail
 
 usage() {
@@ -44,9 +45,9 @@ Auth (one is required):
   --traffic-policy-file <path>  arbitrary policy YAML
   --auth-disabled               run without auth (anyone with the URL drives your browser)
 
-Default auth via environment:
-  BROWSERFACE_AUTH              flags applied when no auth flag is on the CLI, e.g.
-                                  export BROWSERFACE_AUTH="--oauth google --oauth-allow-email you@example.com"
+Default auth (persistent):
+  browser/config auth set <flags>   save flags to ~/.browserface/auth; applied when
+                                    no auth flag is on the CLI
 
 Common examples:
   browser/share --oauth google --oauth-allow-email you@example.com
@@ -57,7 +58,9 @@ Install ngrok from https://ngrok.com/download if it isn't already.
 EOF
 }
 
-if [[ $# -eq 0 && -z "${BROWSERFACE_AUTH:-}" ]]; then
+CONFIG_AUTH_FILE="${HOME}/.browserface/auth"
+
+if [[ $# -eq 0 && ! -s "$CONFIG_AUTH_FILE" ]]; then
   usage
   exit 0
 fi
@@ -78,9 +81,10 @@ if [[ $# -gt 0 && "${1:0:1}" != "-" ]]; then
 fi
 
 # If the CLI has no auth-related flag (including --auth-disabled), inherit
-# defaults from BROWSERFACE_AUTH so an owner-set policy takes effect without
-# having to be repeated on every invocation. Any auth signal on the CLI
-# suppresses the env fallback for that invocation.
+# defaults from ~/.browserface/auth (written by `browser/config auth set …`)
+# so an owner-set policy takes effect without being repeated on every
+# invocation. Any auth signal on the CLI suppresses the file fallback for
+# that invocation.
 cli_has_auth_signal=0
 for arg in "$@"; do
   case "$arg" in
@@ -93,12 +97,13 @@ for arg in "$@"; do
 done
 
 all_args=("$@")
-if [[ $cli_has_auth_signal -eq 0 && -n "${BROWSERFACE_AUTH:-}" ]]; then
-  # Word-split the env var so the user can write it as one shell-style string.
+if [[ $cli_has_auth_signal -eq 0 && -s "$CONFIG_AUTH_FILE" ]]; then
+  saved_auth="$(cat "$CONFIG_AUTH_FILE")"
+  # Word-split the saved string so the file holds one shell-style line.
   # shellcheck disable=SC2206
-  env_args=($BROWSERFACE_AUTH)
-  all_args=("${all_args[@]+"${all_args[@]}"}" "${env_args[@]+"${env_args[@]}"}")
-  echo "browser/share: applying BROWSERFACE_AUTH=${BROWSERFACE_AUTH}" >&2
+  file_args=($saved_auth)
+  all_args=("${all_args[@]+"${all_args[@]}"}" "${file_args[@]+"${file_args[@]}"}")
+  echo "browser/share: applying auth from ~/.browserface/auth: $saved_auth" >&2
 fi
 
 # Strip our own --auth-disabled flag before forwarding to ngrok.
@@ -129,7 +134,7 @@ if [[ $has_auth -eq 0 && $auth_disabled -eq 0 ]]; then
   echo "ERROR: no auth flag detected. Anyone with the URL can drive your browser." >&2
   echo "  Add --oauth, --oidc, --cidr-allow, --mutual-tls-cas, or --traffic-policy-file." >&2
   echo "  Or pass --auth-disabled to run without auth." >&2
-  echo "  Or export BROWSERFACE_AUTH=\"--oauth google --oauth-allow-email …\" as a default." >&2
+  echo "  Or run: browser/config auth set --oauth google --oauth-allow-email …  (saves as default)" >&2
   exit 1
 fi
 
