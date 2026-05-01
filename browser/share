@@ -13,6 +13,14 @@
 # the prompt repeatedly — so it's not accepted here.) To run without auth,
 # pass --auth-disabled explicitly. Whoever loads the URL drives your
 # browser.
+#
+# To set a default auth policy that every invocation inherits, export
+# BROWSERFACE_AUTH with the flags you'd otherwise pass on the CLI, e.g.:
+#
+#   export BROWSERFACE_AUTH="--oauth google --oauth-allow-email you@example.com"
+#
+# Any auth-related flag (or --auth-disabled) on the CLI suppresses the
+# env-var fallback for that invocation, so per-task overrides still work.
 set -euo pipefail
 
 usage() {
@@ -36,6 +44,10 @@ Auth (one is required):
   --traffic-policy-file <path>  arbitrary policy YAML
   --auth-disabled               run without auth (anyone with the URL drives your browser)
 
+Default auth via environment:
+  BROWSERFACE_AUTH              flags applied when no auth flag is on the CLI, e.g.
+                                  export BROWSERFACE_AUTH="--oauth google --oauth-allow-email you@example.com"
+
 Common examples:
   browser/share --oauth google --oauth-allow-email you@example.com
   browser/share you.ngrok.app --oauth google --oauth-allow-email you@example.com
@@ -45,7 +57,7 @@ Install ngrok from https://ngrok.com/download if it isn't already.
 EOF
 }
 
-if [[ $# -eq 0 ]]; then
+if [[ $# -eq 0 && -z "${BROWSERFACE_AUTH:-}" ]]; then
   usage
   exit 0
 fi
@@ -58,17 +70,41 @@ fi
 # Optional first positional = ngrok domain. Bare hostnames get https://
 # prepended; full URLs pass through as-is.
 domain=""
-if [[ "${1:0:1}" != "-" ]]; then
+if [[ $# -gt 0 && "${1:0:1}" != "-" ]]; then
   domain="$1"; shift
   if [[ "$domain" != http://* && "$domain" != https://* ]]; then
     domain="https://$domain"
   fi
 fi
 
+# If the CLI has no auth-related flag (including --auth-disabled), inherit
+# defaults from BROWSERFACE_AUTH so an owner-set policy takes effect without
+# having to be repeated on every invocation. Any auth signal on the CLI
+# suppresses the env fallback for that invocation.
+cli_has_auth_signal=0
+for arg in "$@"; do
+  case "$arg" in
+    --oauth|--oauth=*|--oidc|--oidc=*|--cidr-allow|--cidr-allow=*|\
+    --mutual-tls-cas|--mutual-tls-cas=*|\
+    --traffic-policy-file|--traffic-policy-file=*|--auth-disabled)
+      cli_has_auth_signal=1; break
+      ;;
+  esac
+done
+
+all_args=("$@")
+if [[ $cli_has_auth_signal -eq 0 && -n "${BROWSERFACE_AUTH:-}" ]]; then
+  # Word-split the env var so the user can write it as one shell-style string.
+  # shellcheck disable=SC2206
+  env_args=($BROWSERFACE_AUTH)
+  all_args=("${all_args[@]+"${all_args[@]}"}" "${env_args[@]+"${env_args[@]}"}")
+  echo "browser/share: applying BROWSERFACE_AUTH=${BROWSERFACE_AUTH}" >&2
+fi
+
 # Strip our own --auth-disabled flag before forwarding to ngrok.
 auth_disabled=0
 ngrok_args=()
-for arg in "$@"; do
+for arg in "${all_args[@]+"${all_args[@]}"}"; do
   if [[ "$arg" == "--auth-disabled" ]]; then
     auth_disabled=1
   else
@@ -93,6 +129,7 @@ if [[ $has_auth -eq 0 && $auth_disabled -eq 0 ]]; then
   echo "ERROR: no auth flag detected. Anyone with the URL can drive your browser." >&2
   echo "  Add --oauth, --oidc, --cidr-allow, --mutual-tls-cas, or --traffic-policy-file." >&2
   echo "  Or pass --auth-disabled to run without auth." >&2
+  echo "  Or export BROWSERFACE_AUTH=\"--oauth google --oauth-allow-email …\" as a default." >&2
   exit 1
 fi
 

@@ -110,6 +110,16 @@ browser/share --oauth google --oauth-allow-email you@example.com
 `browser/share` exposes the bridge over a public URL. See the script's
 header for available auth flags and the security caveat.
 
+To skip repeating auth flags on every invocation, export `BROWSERFACE_AUTH`:
+
+```sh
+export BROWSERFACE_AUTH="--oauth google --oauth-allow-email you@example.com"
+browser/share you.ngrok.app
+```
+
+Any auth flag (or `--auth-disabled`) on the CLI suppresses the env-var
+fallback for that invocation, so per-task overrides still work.
+
 ## Develop
 
 ```sh
