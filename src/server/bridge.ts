@@ -13,15 +13,12 @@ export interface BridgeOptions extends BrowserSessionOptions {
   listenPort?: number;
   // Override path to client static assets (defaults to bundled dist/client).
   staticDir?: string;
-  // If true (default), and neither `target` nor `port` is set, attach to
-  // a Chrome we discover. Default discovery probes the agent profile only
+  // Discovery: when neither `target` nor `port` is set, attach to a Chrome
+  // we discover. Default probes the agent profile only
   // (~/.browserface/chrome, brought up by `browser/start`); set
-  // `discoverDailyDriver` to fall back to the chrome://inspect-toggle path
-  // against the daily-driver Chrome instead.
-  autoDiscover?: boolean;
-  // Opt-in: probe daily-driver profile dirs via the chrome://inspect toggle
-  // flow instead of the agent profile. Off by default — bypasses the agent's
-  // privacy isolation, so it's an explicit choice.
+  // `discoverDailyDriver: true` to fall back to the chrome://inspect-toggle
+  // path against the daily-driver Chrome instead. (To skip discovery
+  // entirely, just pass an explicit `target` or `host`+`port`.)
   discoverDailyDriver?: boolean;
 }
 
@@ -51,7 +48,7 @@ export interface BridgeHandle {
 export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandle> {
   const sessionOpts: BrowserSessionOptions = { ...opts };
   let cdpEndpoint = "";
-  if (!sessionOpts.target && !sessionOpts.port && (opts.autoDiscover ?? true)) {
+  if (!sessionOpts.target && !sessionOpts.port) {
     if (opts.discoverDailyDriver) {
       const ep = await discoverChrome({ log: (m) => console.log(m) });
       sessionOpts.target = ep.browserWsUrl;

@@ -47,7 +47,7 @@ ensure_agent_chrome_if_default() {
   for arg in "$@"; do
     case "$arg" in
       --discover|--target|--target=*|-t|--port|--port=*|--host|--host=*|\
-      --help|-h|--no-auto-discover)
+      --help|-h)
         return 0 ;;
     esac
   done

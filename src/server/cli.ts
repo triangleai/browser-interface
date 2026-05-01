@@ -12,7 +12,6 @@ interface CliArgs {
   maxFps?: number;
   format?: "png" | "jpeg";
   quality?: number;
-  noAutoDiscover?: boolean;
   discover?: boolean;
 }
 
@@ -63,9 +62,6 @@ function parseArgs(argv: string[]): CliArgs {
       case "--quality":
         out.quality = Number(next());
         break;
-      case "--no-auto-discover":
-        out.noAutoDiscover = true;
-        break;
       case "--discover":
         out.discover = true;
         break;
@@ -98,7 +94,6 @@ CDP target (skips auto-discovery):
   --target, -t <url>       Full CDP WebSocket URL (browser- or page-level)
   --host <host>            CDP host (default 127.0.0.1)
   --port <port>            CDP port (no default — set this to skip discovery)
-  --no-auto-discover       Fail instead of running auto-discovery
   --discover               Attach to the daily-driver Chrome via chrome://inspect
                            toggle (default: agent profile only)
 
@@ -133,7 +128,6 @@ async function main() {
   if (args.width && args.height) {
     opts.viewport = { width: args.width, height: args.height };
   }
-  if (args.noAutoDiscover) opts.autoDiscover = false;
   if (args.discover) opts.discoverDailyDriver = true;
 
   const handle = await startBridge(opts);

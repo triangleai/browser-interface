@@ -113,7 +113,6 @@ nor a Playwright cache is present.
 | `--target, -t <url>` | Full CDP WebSocket URL (browser- or page-level) |
 | `--host <host>` | CDP host (default `127.0.0.1`) |
 | `--port <port>` | CDP port — set this to skip auto-discovery |
-| `--no-auto-discover` | Disable discovery; require `--target` or `--port` |
 | `--listen-host <host>` | UI bind host (default `127.0.0.1`) |
 | `--listen-port, -l <port>` | UI bind port (default `8768`) |
 | `--width <px>` `--height <px>` | Override viewport via `Emulation.setDeviceMetricsOverride` |
