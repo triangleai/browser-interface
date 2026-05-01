@@ -1,8 +1,10 @@
 # browserface
 
-A lightweight human interface for live browser sessions over Chrome DevTools Protocol (CDP).
+A web-based interface for controlling live browser sessions over CDP.
 
 https://github.com/user-attachments/assets/c23eada7-663d-4a1b-96a0-8b3be20d97e3
+
+*Controlling a remote browser — tabs, navigation, copy/paste, find, and even frame-based video playback.*
 
 browserface gives humans the same primitives an agent uses — click, type,
 scroll, navigate — over a Chromium session that may be running anywhere
