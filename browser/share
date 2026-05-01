@@ -59,6 +59,7 @@ EOF
 }
 
 CONFIG_AUTH_FILE="${HOME}/.browserface/auth"
+HERE="$(dirname "$0")"
 
 if [[ $# -eq 0 && ! -s "$CONFIG_AUTH_FILE" ]]; then
   usage
@@ -80,31 +81,12 @@ if [[ $# -gt 0 && "${1:0:1}" != "-" ]]; then
   fi
 fi
 
-# If the CLI has no auth-related flag (including --auth-disabled), inherit
-# defaults from ~/.browserface/auth (written by `browser/config auth set …`)
-# so an owner-set policy takes effect without being repeated on every
-# invocation. Any auth signal on the CLI suppresses the file fallback for
-# that invocation.
-cli_has_auth_signal=0
-for arg in "$@"; do
-  case "$arg" in
-    --oauth|--oauth=*|--oidc|--oidc=*|--cidr-allow|--cidr-allow=*|\
-    --mutual-tls-cas|--mutual-tls-cas=*|\
-    --traffic-policy-file|--traffic-policy-file=*|--auth-disabled)
-      cli_has_auth_signal=1; break
-      ;;
-  esac
-done
-
-all_args=("$@")
-if [[ $cli_has_auth_signal -eq 0 && -s "$CONFIG_AUTH_FILE" ]]; then
-  saved_auth="$(cat "$CONFIG_AUTH_FILE")"
-  # Word-split the saved string so the file holds one shell-style line.
-  # shellcheck disable=SC2206
-  file_args=($saved_auth)
-  all_args=("${all_args[@]+"${all_args[@]}"}" "${file_args[@]+"${file_args[@]}"}")
-  echo "browser/share: applying auth from ~/.browserface/auth: $saved_auth" >&2
-fi
+# Layer ~/.browserface/auth defaults on top of the CLI args (suppressed if
+# any auth flag is on the CLI). browser/config owns the merge policy.
+all_args=()
+while IFS= read -r -d '' arg; do
+  all_args+=("$arg")
+done < <("$HERE/config" merge auth -- "$@")
 
 # Strip our own --auth-disabled flag before forwarding to ngrok.
 auth_disabled=0

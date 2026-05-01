@@ -123,12 +123,22 @@ reads that file whenever no auth flag is on the CLI. Any auth flag (or
 `--auth-disabled`) on the CLI suppresses the file fallback for that
 invocation, so per-task overrides still work.
 
+The same mechanism applies to bridge flags. Save your preferred viewport,
+listen port, frame cap, or screenshot format once and `browser/face`
+layers them on every start, with per-flag CLI overrides:
+
+```sh
+browser/config set bridge --listen-port 9000 --max-fps 60 --width 1440 --height 900
+browser/face                       # uses all four
+browser/face --listen-port 8000    # overrides listen-port; viewport + fps still applied
+```
+
 Other commands:
 
 ```sh
-browser/config show         # print all settings
-browser/config show auth    # print one
-browser/config clear auth   # remove ~/.browserface/auth
+browser/config show           # print all settings
+browser/config show bridge    # print one
+browser/config clear bridge   # remove ~/.browserface/bridge
 ```
 
 ## Develop
