@@ -63,50 +63,12 @@ function parseArgs(argv: string[]): CliArgs {
       case "--discover":
         out.discover = true;
         break;
-      case "--help":
-      case "-h":
-        printHelp();
-        process.exit(0);
       default:
         console.error(`unknown arg: ${arg}`);
-        printHelp();
         process.exit(2);
     }
   }
   return out;
-}
-
-function printHelp() {
-  console.log(`browserface — human UI for a CDP browser session
-
-Usage:
-  browserface [options]
-
-By default, browserface attaches to its dedicated agent Chrome profile
-(~/.browserface/chrome). The browser/face wrapper auto-runs browser/start
-to bring it up; running this binary directly errors if it's not already
-live. Pass --discover to attach to your own Chrome instead via the
-chrome://inspect-toggle flow.
-
-Connect to a specific CDP target:
-  --target <url>           Full CDP WebSocket URL (browser- or page-level)
-  --host <host>            CDP host (default 127.0.0.1)
-  --port <port>            CDP port
-
-Discover your own Chrome instead of the agent profile:
-  --discover               Attach via the chrome://inspect toggle flow
-
-Server:
-  --listen-host <host>     HTTP/WS bind host (default 127.0.0.1)
-  --listen-port <port>     HTTP/WS bind port (default 8768)
-
-Viewport / capture:
-  --width <px>             Override viewport width (Emulation.setDeviceMetricsOverride)
-  --height <px>            Override viewport height
-  --max-fps <n>            Cap emitted frames/sec (default 30; 0 disables)
-  --format <png|jpeg>      Screenshot format (default jpeg)
-  --quality <0-100>        JPEG quality (default 60)
-`);
 }
 
 async function main() {

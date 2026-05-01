@@ -1,18 +1,52 @@
 #!/usr/bin/env bash
-# Thin wrapper around the bridge entry point. Lets users run
-# `browser/face` instead of remembering `node dist/server/cli.js` etc.
-#
-#   browser/face                     start bridge against the dedicated agent
-#                                    Chrome profile (auto-runs browser/start)
-#   browser/face --discover          attach to your own Chrome via the
-#                                    chrome://inspect-toggle flow
-#   browser/face --port 9222         attach to a specific CDP port
-#   browser/face dev [...flags]      dev mode (rebuild on changes)
-#   browser/face build               build server + client
-#   browser/face typecheck           tsc --noEmit
-#   browser/face clean               remove dist/
-#
+# browser/face — start the browserface bridge against a Chrome session,
+# or run development / build commands. Run `browser/face --help` for docs.
 set -euo pipefail
+
+# Single source of truth for both wrapper-level and bridge-level docs.
+# Called by --help / -h / help and by the unknown-command default below.
+usage() {
+  cat <<'EOF'
+browser/face — start the browserface bridge against a Chrome session.
+
+Usage:
+  browser/face [bridge flags...]   start the bridge (default)
+  browser/face dev [...flags]      dev mode (rebuild on changes)
+  browser/face build               build server + client
+  browser/face typecheck           tsc --noEmit
+  browser/face clean               remove dist/
+
+By default browser/face attaches to its dedicated agent Chrome profile at
+~/.browserface/chrome (auto-runs browser/start to bring it up). Pass
+--discover to attach to your own Chrome via the chrome://inspect-toggle
+flow. Pass --target / --host / --port for an explicit endpoint.
+
+Bridge flags:
+  --target <url>           Full CDP WebSocket URL (browser- or page-level)
+  --host <host>            CDP host (default 127.0.0.1)
+  --port <port>            CDP port
+  --discover               Attach to your own Chrome via the chrome://inspect
+                           toggle flow (default: agent profile only)
+  --listen-host <host>     HTTP/WS bind host (default 127.0.0.1)
+  --listen-port <port>     HTTP/WS bind port (default 8768)
+  --width <px>             Override viewport width
+  --height <px>            Override viewport height
+  --max-fps <n>            Cap emitted frames/sec (default 30; 0 disables)
+  --format <png|jpeg>      Screenshot format (default jpeg)
+  --quality <0-100>        JPEG quality (default 60)
+EOF
+}
+
+# Intercept --help / -h / help in bash so it's instant — no Node startup
+# tax for a command the user runs to read documentation.
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+  esac
+done
 
 HERE="$(dirname "$0")"
 cd "$HERE/.."
@@ -38,8 +72,7 @@ ensure_built() {
 ensure_agent_chrome_if_default() {
   for arg in "$@"; do
     case "$arg" in
-      --discover|--target|--target=*|--port|--port=*|--host|--host=*|\
-      --help|-h)
+      --discover|--target|--target=*|--port|--port=*|--host|--host=*)
         return 0 ;;
     esac
   done
@@ -55,11 +88,6 @@ fi
 
 cmd="$1"; shift
 case "$cmd" in
-  start)
-    ensure_built
-    ensure_agent_chrome_if_default "$@"
-    exec node dist/server/cli.js "$@"
-    ;;
   dev)
     [[ -d node_modules ]] || npm install
     ensure_agent_chrome_if_default "$@"
@@ -69,12 +97,10 @@ case "$cmd" in
     [[ -d node_modules ]] || npm install
     exec npm run "$cmd" -- "$@"
     ;;
-  -h|--help|help)
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
-    ;;
   *)
     echo "Unknown command: $cmd" >&2
-    echo "Usage: browser/face [start|dev|build|typecheck|clean] [flags]" >&2
+    echo >&2
+    usage >&2
     exit 1
     ;;
 esac
