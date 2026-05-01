@@ -69,6 +69,33 @@ browser/find
 browser/face --port 9222
 ```
 
+### Dedicated agent profile
+
+For autonomous agents, the `chrome://inspect`-toggle path is awkward —
+Chrome treats every connect as ad-hoc debugging and pops a confirmation
+dialog. The fix is to launch Chrome ourselves with `--remote-debugging-port`
+at startup; the popup goes away when the port was opened intentionally.
+
+`browser/start` does this with a dedicated profile so the daily-driver
+Chrome stays untouched:
+
+```sh
+browser/start                   # idempotent: launches if not already running, prints the WS URL
+browser/face --target "$(browser/start)"
+```
+
+The profile lives at `~/.browserface/chrome` and persists across launches —
+sign into Gmail/Slack/etc. once in that profile and the agent reuses those
+sessions on every connect. Daily-driver Chrome (and its tabs, history,
+extensions) is never touched.
+
+Binary lookup, in order: `--chromium-binary <path>` → system Chrome
+(`/Applications/Google Chrome.app` on macOS, `google-chrome`/`chromium` on
+Linux) → `$PLAYWRIGHT_BROWSERS_PATH` if set → default Playwright cache
+(`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on
+Linux). Run `npx playwright install chromium` if neither system Chrome nor
+a Playwright cache is present.
+
 ### CLI flags
 
 | Flag | Description |
