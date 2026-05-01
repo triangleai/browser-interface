@@ -1,49 +1,7 @@
 #!/usr/bin/env bash
-# browser/start — launch a dedicated Chrome with remote debugging enabled,
-# using its own profile so the user's own Chrome is untouched. Idempotent:
-# if the profile is already running, just prints its CDP WebSocket URL.
-#
-# Real logic lives in src/server/start.ts → dist/server/start.js. This
-# wrapper handles --help (so reading the docs is instant — no Node startup
-# tax) and the install / build dance so a fresh clone Just Works without
-# first running browser/face.
-#
-# Usage:
-#   browser/start                            launch (or attach to) the agent profile
-#   browser/start --user-data-dir <dir>      override profile location (default ~/.browserface/chrome)
-#   browser/start --chromium-binary <path>   override binary lookup
-#   browser/start --port <n>                 request a specific debug port (default lets Chrome pick)
-#   browser/start --no-launch                only attach if already running; error otherwise
-#
-# Binary lookup, in order:
-#   1. --chromium-binary <path>   explicit override
-#   2. system Chrome              /Applications/Google Chrome.app on macOS;
-#                                 google-chrome / chromium on Linux
-#   3. PLAYWRIGHT_BROWSERS_PATH   workspace-vendored Playwright Chromium
-#   4. default Playwright cache   ~/Library/Caches/ms-playwright (macOS)
-#                                 ~/.cache/ms-playwright (Linux)
-#
-# Output: prints the CDP WebSocket URL on stdout (one line). Status messages
-# go to stderr. Exit 0 on success.
-#
-# Why a dedicated profile: Chrome only suppresses the per-connect "Allow
-# remote debugging" popup when the debug port was opened at launch via
-# --remote-debugging-port. The chrome://inspect-toggle path keeps prompting,
-# which doesn't work for autonomous agents. Launching our own Chrome side-
-# steps that and also keeps the agent's blast radius scoped to one profile
-# instead of the owner's full browsing.
+# browser/start — wrapper for src/server/start.ts.
+# Run `browser/start --help` for full docs.
 set -euo pipefail
-
-# Intercept --help in bash so it's instant — no Node startup tax for a
-# command the user runs to read documentation.
-for arg in "$@"; do
-  case "$arg" in
-    -h|--help)
-      sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
-      exit 0
-      ;;
-  esac
-done
 
 HERE="$(dirname "$0")"
 cd "$HERE/.."
