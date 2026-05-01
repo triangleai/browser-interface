@@ -20,8 +20,14 @@ function parseArgs(argv: string[]): CliArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg) continue;
-    const next = () => argv[++i];
-    switch (arg) {
+    // Accept both `--flag value` and `--flag=value`. ngrok accepts both
+    // (verified against v3.33) and browser/config can persist either, so
+    // the bridge needs to round-trip both too.
+    const eq = arg.indexOf("=");
+    const name = eq === -1 ? arg : arg.slice(0, eq);
+    const inlineValue = eq === -1 ? undefined : arg.slice(eq + 1);
+    const next = () => inlineValue ?? argv[++i];
+    switch (name) {
       case "--target":
       case "-t":
         out.target = next();
