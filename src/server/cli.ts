@@ -88,12 +88,13 @@ to bring it up; running this binary directly errors if it's not already
 live. Pass --discover to attach to your own Chrome instead via the
 chrome://inspect-toggle flow.
 
-CDP target (skips auto-discovery):
+Connect to a specific CDP target:
   --target <url>           Full CDP WebSocket URL (browser- or page-level)
   --host <host>            CDP host (default 127.0.0.1)
-  --port <port>            CDP port (no default — set this to skip discovery)
-  --discover               Attach to your own Chrome via the chrome://inspect
-                           toggle (default: agent profile only)
+  --port <port>            CDP port (no default)
+
+Discover your own Chrome instead of the agent profile:
+  --discover               Attach via the chrome://inspect toggle flow
 
 Server:
   --listen-host <host>     HTTP/WS bind host (default 127.0.0.1)
