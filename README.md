@@ -2,7 +2,7 @@
 
 A lightweight human interface for live browser sessions over Chrome DevTools Protocol (CDP).
 
-<video src="./docs/demo.mp4" controls muted autoplay loop playsinline></video>
+<video src="https://github.com/user-attachments/assets/c23eada7-663d-4a1b-96a0-8b3be20d97e3" controls muted autoplay loop playsinline></video>
 
 browserface gives humans the same primitives an agent uses — click, type,
 scroll, navigate — over a Chromium session that may be running anywhere
