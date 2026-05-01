@@ -20,7 +20,15 @@ export interface ToolbarController {
   // Update the URL bar's text from a server message. No-op while the user
   // is mid-edit so we don't yank what they're typing.
   setUrl: (url: string) => void;
+  // Focus the URL bar with empty text — used when the UI opens a new tab,
+  // mirroring Chrome's Cmd+T behavior (omnibox focused, ready to type).
+  focusUrl: () => void;
 }
+
+// URLs the address bar should display as empty. Chrome's own omnibox
+// hides the URL on the new-tab page; mirror that. about:blank stays
+// visible — Chrome shows it literally and so do we.
+const EMPTY_URL_DISPLAY = new Set(["chrome://newtab/"]);
 
 // Decide whether the URL bar's contents should navigate (real URL) or fall
 // back to a Google search (looks like a query). Mirrors what real browsers
@@ -80,7 +88,11 @@ export function setupToolbar(opts: ToolbarOptions): ToolbarController {
   return {
     setUrl(value) {
       if (urlEditing) return;
-      url.value = value;
+      url.value = EMPTY_URL_DISPLAY.has(value) ? "" : value;
+    },
+    focusUrl() {
+      url.value = "";
+      url.focus();
     },
   };
 }

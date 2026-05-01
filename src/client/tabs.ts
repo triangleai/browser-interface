@@ -19,6 +19,9 @@ export interface TabsOptions {
   inactiveCancel: HTMLElement;
   send: (action: ClientAction) => string | null;
   onTabAction?: () => void;
+  // Fires when the user clicks "+" to open a new tab — host wires this to
+  // focus the URL bar so a new tab lands ready-to-type, like Cmd+T.
+  onNewTab?: () => void;
 }
 
 export interface TabsController {
@@ -32,8 +35,16 @@ export interface TabsController {
 }
 
 export function setupTabs(opts: TabsOptions): TabsController {
-  const { tabsEl, sidebarEl, inactiveOverlay, inactiveRevive, inactiveCancel, send, onTabAction } =
-    opts;
+  const {
+    tabsEl,
+    sidebarEl,
+    inactiveOverlay,
+    inactiveRevive,
+    inactiveCancel,
+    send,
+    onTabAction,
+    onNewTab,
+  } = opts;
   let lastTabs: TabInfo[] = [];
   let isVisible = true;
 
@@ -104,6 +115,7 @@ export function setupTabs(opts: TabsOptions): TabsController {
     newBtn.title = "New tab";
     newBtn.addEventListener("click", () => {
       send({ type: "newTab" });
+      if (onNewTab) onNewTab();
       fireTabAction();
     });
     target.appendChild(newBtn);

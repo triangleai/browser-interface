@@ -466,10 +466,10 @@ export class BrowserSession extends EventEmitter {
     if (real) return { targetId: real.targetId, url: real.url, title: real.title };
     const anyPage = targetInfos.find((t) => t.type === "page");
     if (anyPage) return { targetId: anyPage.targetId, url: anyPage.url, title: anyPage.title };
-    const created = (await rawSend(client, "Target.createTarget", { url: "about:blank" })) as {
-      targetId: string;
-    };
-    return { targetId: created.targetId, url: "about:blank", title: "" };
+    const created = (await rawSend(client, "Target.createTarget", {
+      url: "chrome://newtab/",
+    })) as { targetId: string };
+    return { targetId: created.targetId, url: "chrome://newtab/", title: "" };
   }
 
   private async send<T = unknown>(method: string, params: unknown = {}): Promise<T> {
@@ -946,12 +946,15 @@ export class BrowserSession extends EventEmitter {
 
   async newTab(url?: string): Promise<string> {
     if (!this.client) throw new Error("session not connected");
+    // Default to chrome://newtab/ so a UI-driven new tab looks like a real
+    // Cmd+T tab (Google logo, recently visited) instead of about:blank.
+    const target = url ?? "chrome://newtab/";
     const created = (await rawSend(this.client, "Target.createTarget", {
-      url: url ?? "about:blank",
+      url: target,
     })) as { targetId: string };
     // Target.targetCreated should arrive and seed `tabs`, but be defensive.
     if (!this.tabs.has(created.targetId)) {
-      this.tabs.set(created.targetId, { url: url ?? "about:blank", title: "" });
+      this.tabs.set(created.targetId, { url: target, title: "" });
     }
     await this.switchToTarget(created.targetId);
     return created.targetId;
