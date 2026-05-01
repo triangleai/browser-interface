@@ -137,11 +137,12 @@ has_page_target() {
   printf '%s' "$body" | grep -qE '"type"[[:space:]]*:[[:space:]]*"page"'
 }
 
-# Open a fresh about:blank tab on the running Chrome at port $1, which
-# brings up a window if none exist.
-open_blank_tab() {
+# Open a fresh new-tab page on the running Chrome at port $1, which brings
+# up a window if none exist. Uses chrome://newtab/ so it looks like a real
+# Cmd+T tab (Google logo, recently visited) instead of about:blank.
+open_new_tab() {
   local port="$1"
-  curl -s --max-time 2 -X PUT "http://127.0.0.1:${port}/json/new" >/dev/null
+  curl -s --max-time 2 -X PUT "http://127.0.0.1:${port}/json/new?chrome://newtab/" >/dev/null
 }
 
 # ── main ──────────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ if url=$(ws_url_from_profile); then
   port=$(head -1 "$profile_dir/DevToolsActivePort")
   if ! has_page_target "$port"; then
     echo "browser/start: agent Chrome is alive but has no open windows; opening one." >&2
-    open_blank_tab "$port" || echo "browser/start: warning: PUT /json/new failed" >&2
+    open_new_tab "$port" || echo "browser/start: warning: PUT /json/new failed" >&2
   fi
   echo "$url"
   exit 0
