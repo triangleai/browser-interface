@@ -241,6 +241,9 @@ const tabs = setupTabs({
   // the user lands back on the page they just selected without an extra
   // tap to close. No-op on desktop or when the sidebar isn't open.
   onTabAction: () => closeMobileSidebar(),
+  // Match Chrome's Cmd+T: when the user clicks "+", focus the URL bar
+  // empty so they can type immediately.
+  onNewTab: () => toolbar.focusUrl(),
 });
 const toolbar = setupToolbar({
   back: els.back,
