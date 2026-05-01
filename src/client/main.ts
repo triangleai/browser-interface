@@ -22,7 +22,6 @@ const els = {
   url: document.getElementById("url") as HTMLInputElement,
   openExternal: document.getElementById("open-external") as HTMLButtonElement,
   status: document.getElementById("status") as HTMLSpanElement,
-  cdpEndpoint: document.getElementById("cdp-endpoint") as HTMLSpanElement,
   loadingIndicator: document.getElementById("loading-indicator") as HTMLSpanElement,
   fps: document.getElementById("fps") as HTMLSpanElement,
   hoverLink: document.getElementById("hover-link") as HTMLAnchorElement,
@@ -121,7 +120,6 @@ function handleServerMessage(msg: ServerMessage) {
       viewport = msg.viewport;
       toolbar.setUrl(msg.url);
       document.title = msg.title ? `${msg.title} — browserface` : "browserface";
-      statusBar.setCdpEndpoint(msg.cdpEndpoint ?? "");
       fitFrame();
       return;
     case "screenshot": {
@@ -209,7 +207,6 @@ function handleServerMessage(msg: ServerMessage) {
 
 const statusBar = setupStatusBar({
   status: els.status,
-  cdpEndpoint: els.cdpEndpoint,
   loadingIndicator: els.loadingIndicator,
   fps: els.fps,
   hoverLink: els.hoverLink,

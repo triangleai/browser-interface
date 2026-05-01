@@ -415,18 +415,6 @@ body.orient-vertical .orient-toggle {
   position: relative;
 }
 
-.cdp-endpoint {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: var(--fg-dim);
-  white-space: nowrap;
-  font-size: 10px;
-  letter-spacing: 0.02em;
-}
-
-.cdp-endpoint:empty {
-  display: none;
-}
-
 .hover-link {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color: var(--fg-dim);
@@ -458,25 +446,15 @@ body.orient-vertical .orient-toggle {
   pointer-events: none;
 }
 
-.meter-group {
-  display: inline-flex;
-  align-items: center;
-  /* Tight pairing so the endpoint sits flush against the fps box. */
-  gap: 3px;
-}
-
 .fps {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: var(--fg-dim);
   white-space: nowrap;
-  /* Fixed width so the FPS box doesn't grow with content (keeps the CDP
-     endpoint anchored). Sized to fit "60 fps" — the longest realistic value —
-     in the meter-cluster's monospace font. Right-aligned so the trailing "fps"
-     unit stays visually pinned. Format is always "N fps" or "— fps" so the
-     widest and shortest values differ by at most one character, keeping the
-     CDP endpoint visually flush against the FPS text. */
+  /* Fixed width sized to fit "60 fps" — the longest realistic value — so the
+     box doesn't grow/shrink as the number changes. Right-aligned so the
+     trailing unit stays visually pinned. */
   width: 42px;
   text-align: right;
 }
@@ -976,7 +954,6 @@ body.dragging-sidebar .toolbar {
    on mobile. */
 @media (pointer: coarse) {
   .sidebar-resize,
-  .cdp-endpoint,
   .fps,
   .hover-link,
   #open-external {

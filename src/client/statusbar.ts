@@ -1,12 +1,11 @@
 import type { ConnectionState } from "./bridge.js";
 
-// Bottom status bar: connection-state pill, CDP endpoint label, page-load
-// indicator, FPS meter, and the hover-link readout. The viewport-size
-// preset buttons (match-size / desktop-size) are wired up in main.ts;
-// this module owns the meter/status cluster inside footer.statusbar.
+// Bottom status bar: connection-state pill, page-load indicator, FPS
+// meter, and the hover-link readout. The viewport-size preset buttons
+// (match-size / desktop-size) are wired up in main.ts; this module owns
+// the meter/status cluster inside footer.statusbar.
 export interface StatusBarOptions {
   status: HTMLElement;
-  cdpEndpoint: HTMLElement;
   loadingIndicator: HTMLElement;
   fps: HTMLElement;
   hoverLink: HTMLAnchorElement;
@@ -14,7 +13,6 @@ export interface StatusBarOptions {
 
 export interface StatusBarController {
   setStatus: (state: ConnectionState) => void;
-  setCdpEndpoint: (endpoint: string) => void;
   setLoading: (loading: boolean) => void;
   // null clears the readout (cursor not on any link); a string sets the
   // anchor's text + href so left-click opens in the user's browser and
@@ -26,7 +24,7 @@ export interface StatusBarController {
 }
 
 export function setupStatusBar(opts: StatusBarOptions): StatusBarController {
-  const { status, cdpEndpoint, loadingIndicator, fps, hoverLink } = opts;
+  const { status, loadingIndicator, fps, hoverLink } = opts;
 
   function setStatus(state: ConnectionState) {
     status.dataset.state = state;
@@ -39,8 +37,8 @@ export function setupStatusBar(opts: StatusBarOptions): StatusBarController {
   }
 
   // FPS meter: keep last second's frame timestamps; refresh display every
-  // 500ms. Format kept consistent ("N fps" vs "— fps") so the FPS box
-  // doesn't change width and shift the CDP endpoint next to it.
+  // 500ms. Reads "idle" when no frames are arriving so the UI distinguishes
+  // a paused screencast from a slow one.
   const frameTimes: number[] = [];
   function recordFrame() {
     frameTimes.push(performance.now());
@@ -48,14 +46,11 @@ export function setupStatusBar(opts: StatusBarOptions): StatusBarController {
   setInterval(() => {
     const now = performance.now();
     while (frameTimes.length && now - frameTimes[0]! > 1000) frameTimes.shift();
-    fps.textContent = frameTimes.length === 0 ? "— fps" : `${frameTimes.length} fps`;
+    fps.textContent = frameTimes.length === 0 ? "idle" : `${frameTimes.length} fps`;
   }, 500);
 
   return {
     setStatus,
-    setCdpEndpoint(endpoint) {
-      cdpEndpoint.textContent = endpoint;
-    },
     setLoading(loading) {
       loadingIndicator.hidden = !loading;
     },

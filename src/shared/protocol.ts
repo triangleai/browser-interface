@@ -220,9 +220,6 @@ export interface ReadyMessage {
   viewport: { width: number; height: number; deviceScaleFactor: number };
   url: string;
   title: string;
-  // Display string for the CDP endpoint (e.g. "127.0.0.1:9222"), shown in the
-  // status bar so users running multiple bridges can tell instances apart.
-  cdpEndpoint?: string;
 }
 
 export interface TabInfo {

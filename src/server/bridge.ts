@@ -47,12 +47,10 @@ export interface BridgeHandle {
 
 export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandle> {
   const sessionOpts: BrowserSessionOptions = { ...opts };
-  let cdpEndpoint = "";
   if (!sessionOpts.target && !sessionOpts.port) {
     if (opts.discoverUserChrome) {
       const ep = await discoverChrome({ log: (m) => console.log(m) });
       sessionOpts.target = ep.browserWsUrl;
-      cdpEndpoint = `${ep.host}:${ep.port}`;
       console.log(
         `[browserface] discovered user Chrome at ${ep.host}:${ep.port} (profile: ${ep.profileDir})`,
       );
@@ -67,16 +65,10 @@ export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandl
         );
       }
       sessionOpts.target = ep.browserWsUrl;
-      cdpEndpoint = `${ep.host}:${ep.port}`;
       console.log(
         `[browserface] attached to agent profile at ${ep.host}:${ep.port}`,
       );
     }
-  } else if (sessionOpts.host && sessionOpts.port) {
-    cdpEndpoint = `${sessionOpts.host}:${sessionOpts.port}`;
-  } else if (sessionOpts.target) {
-    const m = sessionOpts.target.match(/^wss?:\/\/([^/]+)/);
-    if (m && m[1]) cdpEndpoint = m[1];
   }
   const session = new BrowserSession(sessionOpts);
   await session.connect();
@@ -120,7 +112,6 @@ export async function startBridge(opts: BridgeOptions = {}): Promise<BridgeHandl
         viewport,
         url: page.url,
         title: page.title,
-        cdpEndpoint: cdpEndpoint || undefined,
       });
       const tabs = session.getTabs();
       if (tabs.length > 0) send({ type: "tabs", tabs });
