@@ -2,6 +2,8 @@
 
 A lightweight human interface for live browser sessions over Chrome DevTools Protocol (CDP).
 
+<video src="https://github.com/browserface/browserface/raw/main/docs/demo.mp4" controls width="100%"></video>
+
 browserface gives humans the same primitives an agent uses — click, type,
 scroll, navigate — over a Chromium session that may be running anywhere
 (local, VPS, ECS/Fargate). Instead of streaming a remote desktop or shipping a
