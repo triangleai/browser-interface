@@ -9,13 +9,12 @@
 #
 # Domains:
 #   auth     ngrok auth flags applied by browser/share when no auth flag is on the CLI
-#   bridge   bridge flags applied by browser/face when the matching flag is not on the CLI
 #
 # Storage: each domain has its own file at ~/.browserface/<domain>.
 set -euo pipefail
 
 CONFIG_DIR="${HOME}/.browserface"
-KNOWN_DOMAINS=(auth bridge)
+KNOWN_DOMAINS=(auth)
 
 usage() {
   cat <<'EOF'
@@ -29,16 +28,13 @@ Usage:
 
 Domains:
   auth     ngrok auth flags applied by browser/share when no auth flag is on the CLI
-  bridge   bridge flags applied by browser/face when the matching flag is not on the CLI
 
 Examples:
   browser/config set auth --oauth google --oauth-allow-email you@example.com
   browser/config set auth --cidr-allow 203.0.113.0/24
-  browser/config set bridge --listen-port 9000 --max-fps 60
-  browser/config set bridge --width 1440 --height 900 --format jpeg --quality 70
   browser/config show
-  browser/config show bridge
-  browser/config clear bridge
+  browser/config show auth
+  browser/config clear auth
 
 `merge` is for callers (browser/share, browser/face). It emits NUL-delimited
 args on stdout: the CLI args you passed, plus any saved defaults that the
@@ -114,119 +110,6 @@ merge_auth() {
   done
 }
 
-# ── bridge ────────────────────────────────────────────────────────────────
-# Bridge is a bag of independent knobs. Per-flag suppression: a saved flag
-# is dropped from the merge only when the same canonical flag is on the
-# CLI. Recognized flag names must stay in sync with src/server/cli.ts.
-
-# Returns the canonical (long) form of a bridge flag, or empty if not
-# recognized. Strips the =value suffix so "--listen-port=9000" canonicalizes
-# to "--listen-port".
-bridge_canonical_flag() {
-  local f="${1%%=*}"
-  case "$f" in
-    --listen-host|--listen-port|--width|--height|--max-fps|--format|--quality)
-      echo "$f" ;;
-    *) echo "" ;;
-  esac
-}
-
-domain_set_bridge() {
-  if [[ $# -eq 0 ]]; then
-    echo "browser/config set bridge: requires at least one bridge flag" >&2
-    echo "  e.g. browser/config set bridge --listen-port 9000 --max-fps 60" >&2
-    exit 1
-  fi
-  local args=("$@")
-  local i=0
-  while [[ $i -lt ${#args[@]} ]]; do
-    local arg="${args[$i]}"
-    local c
-    c="$(bridge_canonical_flag "$arg")"
-    if [[ -z "$c" ]]; then
-      echo "browser/config set bridge: unknown flag '$arg'" >&2
-      echo "  Valid: --listen-host, --listen-port, --width, --height, --max-fps, --format, --quality" >&2
-      exit 1
-    fi
-    if [[ "$arg" == *=* ]]; then
-      i=$((i+1))
-    else
-      if [[ $((i+1)) -ge ${#args[@]} ]]; then
-        echo "browser/config set bridge: '$arg' requires a value" >&2
-        exit 1
-      fi
-      i=$((i+2))
-    fi
-  done
-  mkdir -p "$CONFIG_DIR"
-  printf '%s\n' "$*" > "$CONFIG_DIR/bridge"
-  echo "browser/config: saved bridge = $*" >&2
-}
-
-merge_bridge() {
-  local cli_args=("$@")
-
-  # Build the set of canonical bridge flags present on the CLI. Stored as
-  # a space-padded string for membership tests (bash 3.2 has no native sets).
-  local cli_flags=" "
-  for arg in "${cli_args[@]+"${cli_args[@]}"}"; do
-    local c
-    c="$(bridge_canonical_flag "$arg")"
-    [[ -n "$c" ]] && cli_flags+="$c "
-  done
-
-  local saved_args=()
-  if [[ -s "$CONFIG_DIR/bridge" ]]; then
-    local saved_str
-    saved_str="$(cat "$CONFIG_DIR/bridge")"
-    # shellcheck disable=SC2206
-    saved_args=($saved_str)
-  fi
-
-  # Emit CLI args verbatim first, then any saved (flag, value) pair whose
-  # canonical name isn't on the CLI. The whole pair is kept or dropped
-  # together — never half a flag.
-  for arg in "${cli_args[@]+"${cli_args[@]}"}"; do
-    printf '%s\0' "$arg"
-  done
-
-  local applied=()
-  local n=${#saved_args[@]}
-  local i=0
-  while [[ $i -lt $n ]]; do
-    local s="${saved_args[$i]}"
-    local c
-    c="$(bridge_canonical_flag "$s")"
-    if [[ -z "$c" ]]; then
-      # Unknown saved token (shouldn't happen — set validates). Pass it
-      # through and advance one.
-      printf '%s\0' "$s"
-      applied+=("$s")
-      i=$((i+1))
-      continue
-    fi
-    if [[ "$s" == *=* ]]; then
-      if [[ "$cli_flags" != *" $c "* ]]; then
-        printf '%s\0' "$s"
-        applied+=("$s")
-      fi
-      i=$((i+1))
-    else
-      local v="${saved_args[$((i+1))]:-}"
-      if [[ "$cli_flags" != *" $c "* ]]; then
-        printf '%s\0' "$s"
-        printf '%s\0' "$v"
-        applied+=("$s" "$v")
-      fi
-      i=$((i+2))
-    fi
-  done
-
-  if [[ ${#applied[@]} -gt 0 ]]; then
-    echo "browser/config: applying bridge defaults: ${applied[*]}" >&2
-  fi
-}
-
 # ── verbs ─────────────────────────────────────────────────────────────────
 
 cmd_set() {
@@ -240,8 +123,7 @@ cmd_set() {
     exit 1
   fi
   case "$domain" in
-    auth)   domain_set_auth "$@" ;;
-    bridge) domain_set_bridge "$@" ;;
+    auth) domain_set_auth "$@" ;;
   esac
 }
 
@@ -303,8 +185,7 @@ cmd_merge() {
   # Optional "--" separator before the CLI args.
   if [[ $# -gt 0 && "$1" == "--" ]]; then shift; fi
   case "$domain" in
-    auth)   merge_auth "$@" ;;
-    bridge) merge_bridge "$@" ;;
+    auth) merge_auth "$@" ;;
   esac
 }
 

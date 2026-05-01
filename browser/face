@@ -12,10 +12,6 @@
 #   browser/face typecheck           tsc --noEmit
 #   browser/face clean               remove dist/
 #
-# Bridge flags can be saved as defaults with `browser/config set bridge …`;
-# they're layered on top of any CLI flags on every start/dev invocation,
-# with per-flag suppression when the same flag is on the CLI.
-#
 set -euo pipefail
 
 HERE="$(dirname "$0")"
@@ -27,16 +23,6 @@ cd "$HERE/.."
 ensure_built() {
   [[ -d node_modules ]] || npm install
   npm run build
-}
-
-# Read NUL-delimited merged bridge args from browser/config into the global
-# `bridge_args` array. Done in a function so it can be reused by start/dev
-# without duplicating the read loop (bash can't return arrays cleanly).
-merge_bridge_args() {
-  bridge_args=()
-  while IFS= read -r -d '' arg; do
-    bridge_args+=("$arg")
-  done < <("$HERE/config" merge bridge -- "$@")
 }
 
 # In default mode (no --discover, no explicit endpoint), bring up the agent
@@ -57,31 +43,28 @@ ensure_agent_chrome_if_default() {
 # No args, or first arg is a flag → bridge.
 if [[ $# -eq 0 || "${1:0:1}" == "-" ]]; then
   ensure_built
-  merge_bridge_args "$@"
-  ensure_agent_chrome_if_default "${bridge_args[@]+"${bridge_args[@]}"}"
-  exec npm start -- "${bridge_args[@]+"${bridge_args[@]}"}"
+  ensure_agent_chrome_if_default "$@"
+  exec npm start -- "$@"
 fi
 
 cmd="$1"; shift
 case "$cmd" in
   start)
     ensure_built
-    merge_bridge_args "$@"
-    ensure_agent_chrome_if_default "${bridge_args[@]+"${bridge_args[@]}"}"
-    exec npm start -- "${bridge_args[@]+"${bridge_args[@]}"}"
+    ensure_agent_chrome_if_default "$@"
+    exec npm start -- "$@"
     ;;
   dev)
     [[ -d node_modules ]] || npm install
-    merge_bridge_args "$@"
-    ensure_agent_chrome_if_default "${bridge_args[@]+"${bridge_args[@]}"}"
-    exec npm run dev -- "${bridge_args[@]+"${bridge_args[@]}"}"
+    ensure_agent_chrome_if_default "$@"
+    exec npm run dev -- "$@"
     ;;
   build|build:server|build:client|typecheck|clean)
     [[ -d node_modules ]] || npm install
     exec npm run "$cmd" -- "$@"
     ;;
   -h|--help|help)
-    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *)
     echo "Unknown command: $cmd" >&2
