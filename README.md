@@ -208,11 +208,4 @@ session.on("screenshot", (frame) => {
 session.startScreenshotLoop();
 ```
 
-## Protocol
-
-`src/shared/protocol.ts` is the single source of truth for the wire format —
-every message between server and client (and any agent) uses these types. The
-server pushes `screenshot`, `page`, `ready`, `ack`, `error`. Clients send
-`hello` and `action` with one of: `click`, `mousemove`, `type`, `key`,
-`scroll`, `navigate`, `reload`, `back`, `forward`.
 
