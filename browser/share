@@ -98,6 +98,7 @@ if [[ $cli_has_auth_signal -eq 0 && -n "${BROWSERFACE_AUTH:-}" ]]; then
   # shellcheck disable=SC2206
   env_args=($BROWSERFACE_AUTH)
   all_args=("${all_args[@]+"${all_args[@]}"}" "${env_args[@]+"${env_args[@]}"}")
+  echo "browser/share: applying BROWSERFACE_AUTH=${BROWSERFACE_AUTH}" >&2
 fi
 
 # Strip our own --auth-disabled flag before forwarding to ngrok.
